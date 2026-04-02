@@ -222,7 +222,8 @@ class Win32Emulator(WindowsEmulator):
             self.stop()
             raise Win32EmuError("Module not found")
 
-        # Check if any TLS callbacks exist, these run before the module's entry point
+        runs = []
+
         tls = module.get_tls_callbacks()
         for i, cb_addr in enumerate(tls):
             base = module.base
@@ -232,6 +233,7 @@ class Win32Emulator(WindowsEmulator):
                 run.type = f"tls_callback_{i}"
                 run.args = [base, DLL_PROCESS_ATTACH, 0]
                 self.add_run(run)
+                runs.append(run)
 
         ep = module.base + module.ep
 
@@ -241,20 +243,14 @@ class Win32Emulator(WindowsEmulator):
         if not module.is_exe():
             run.args = [module.base, DLL_PROCESS_ATTACH, 0]
             run.type = "dll_entry.DLL_PROCESS_ATTACH"
-            container = self.init_container_process()
-            if container:
-                self.processes.append(container)
-                self.curr_process = container
         else:
             run.type = "module_entry"
             run.args = [self.mem_map(8, tag=f"emu.module_arg_{i}") for i in range(4)]
 
         self.add_run(run)
+        runs.append(run)
 
         if all_entrypoints:
-            # Only emulate a subset of all the exported functions
-            # There are some modules (such as the windows kernel) with
-            # thousands of exports
             exports = [k for k in module.get_exports()[:MAX_EXPORTS_TO_EMULATE]]
 
             if exports:
@@ -275,14 +271,11 @@ class Win32Emulator(WindowsEmulator):
                         argc, argv = self.build_service_main_args("IPRIP", char_width=char_width)
                         run.args = [argc, argv]
                     else:
-                        # Here we set dummy args to pass into the export function
                         run.args = args
-                    # Store these runs and only queue them before the unload
-                    # routine this is because some exports may not be ready to
-                    # be called yet
                     self.add_run(run)
+                    runs.append(run)
 
-        return
+        return runs
 
     def run_module(self, module, all_entrypoints=False, emulate_children=False):
         """
@@ -291,58 +284,56 @@ class Win32Emulator(WindowsEmulator):
         Arguments:
             module: Module to emulate
         """
-        self.prepare_module_for_emulation(module, all_entrypoints)
+        runs = self.prepare_module_for_emulation(module, all_entrypoints)
 
-        # Create an empty process object for the module if none is
-        # supplied, only do this for the main module
-        if len(self.processes) == 0:
+        if not module.is_exe():
+            container = self.init_container_process()
+            if container:
+                p = container
+            else:
+                p = objman.Process(self, path=module.emu_path, base=module.base, pe=module, cmdline=self.command_line)
+        else:
             p = objman.Process(self, path=module.emu_path, base=module.base, pe=module, cmdline=self.command_line)
-            self.curr_process = p
-            self.om.objects.update({p.address: p})  # type: ignore[union-attr]
-            mm = self.get_address_map(module.base)
-            if mm:
-                mm.process = self.curr_process
+
+        self.processes.append(p)
+        self.om.objects.update({p.address: p})  # type: ignore[union-attr]
+        mm = self.get_address_map(module.base)
+        if mm:
+            mm.process = p
 
         t = objman.Thread(self, stack_base=self.stack_base, stack_commit=module.stack_commit)
-
         self.om.objects.update({t.address: t})  # type: ignore[union-attr]
-        self.curr_process.threads.append(t)  # type: ignore[union-attr]
-        self.curr_thread = t
+        t.process = p
+        p.threads.append(t)
 
-        if self.run_queue:
-            self.run_queue[0].thread = t
+        for r in runs:
+            r.process_context = p
+            r.thread = t
 
-        peb = self.alloc_peb(self.curr_process)
-
-        # Set the TEB
-        self.init_teb(t, peb)
-
-        # Begin emulation of main module
         self.start()
 
         if not emulate_children or len(self.child_processes) == 0:
             return
 
-        # Emulate any child processes
         while len(self.child_processes) > 0:
             child = self.child_processes.pop(0)
 
             child.pe = self.load_module(data=child.pe_data)
-            self.prepare_module_for_emulation(child.pe, all_entrypoints)
+            child_runs = self.prepare_module_for_emulation(child.pe, all_entrypoints)
 
             self.command_line = child.cmdline
+            child.base = child.pe.base
 
-            self.curr_process = child
-            self.curr_process.base = child.pe.base
-            self.curr_thread = child.threads[0]
+            self.processes.append(child)
 
-            self.om.objects.update({self.curr_thread.address: self.curr_thread})  # type: ignore[union-attr]
+            child_thread = child.threads[0]
+            self.om.objects.update({child_thread.address: child_thread})  # type: ignore[union-attr]
 
-            # PEB and TEB will be initialized when the next run happens
+            for r in child_runs:
+                r.process_context = child
+                r.thread = child_thread
 
             self.start()
-
-        return
 
     def _init_name(self, path, data=None):
         if not data:
@@ -419,8 +410,7 @@ class Win32Emulator(WindowsEmulator):
         if not target:
             raise Win32EmuError("Invalid shellcode address")
 
-        self.stack_base, stack_addr = self.alloc_stack(stack_commit)
-        self.set_func_args(self.stack_base, self.return_hook, 0x7000)
+        self.stack_base, _ = self.alloc_stack(stack_commit)
 
         run = Run()
         run.type = "shellcode"
@@ -428,36 +418,29 @@ class Win32Emulator(WindowsEmulator):
         run.instr_cnt = 0
         args = [self.mem_map(1024, tag=f"emu.shellcode_arg_{i}", base=0x41420000 + i) for i in range(4)]
         run.args = args
+        run.init_regs = {_arch.X86_REG_ECX: 1024}
 
-        self.reg_write(_arch.X86_REG_ECX, 1024)
-
-        self.add_run(run)
-
-        # Create an empty process object for the shellcode if none is
-        # supplied
         container = self.init_container_process()
         if container:
             self.processes.append(container)
-            self.curr_process = container
+            p = container
         else:
             p = objman.Process(self)
             self.processes.append(p)
-            self.curr_process = p
 
+        self.om.objects.update({p.address: p})  # type: ignore[union-attr]
         mm = self.get_address_map(sc_addr)
         if mm:
-            mm.process = self.curr_process
+            mm.process = p
 
         t = objman.Thread(self, stack_base=self.stack_base, stack_commit=stack_commit)
         self.om.objects.update({t.address: t})  # type: ignore[union-attr]
-        self.curr_process.threads.append(t)
+        t.process = p
+        p.threads.append(t)
 
-        self.curr_thread = t
-
-        peb = self.alloc_peb(self.curr_process)
-
-        # Set the TEB
-        self.init_teb(t, peb)
+        run.process_context = p
+        run.thread = t
+        self.add_run(run)
 
         self.start()
 
@@ -574,6 +557,38 @@ class Win32Emulator(WindowsEmulator):
                 proc = objman.Process(self, name=name, path=emu_path, base=base, cmdline=cmd_line)
                 return proc
         return None
+
+    def _create_default_process(self, run):
+        mod = self.get_module_from_addr(run.start_addr)
+
+        if mod and getattr(mod, "is_exe", lambda: False)():
+            p = objman.Process(
+                self,
+                path=getattr(mod, "emu_path", ""),
+                base=getattr(mod, "base", 0),
+                pe=mod,
+                cmdline=self.command_line,
+            )
+        else:
+            container = self.init_container_process()
+            if container:
+                p = container
+            elif mod:
+                p = objman.Process(
+                    self,
+                    path=getattr(mod, "emu_path", ""),
+                    base=getattr(mod, "base", 0),
+                    pe=mod,
+                )
+            else:
+                p = objman.Process(self)
+
+        self.processes.append(p)
+        self.om.objects.update({p.address: p})  # type: ignore[union-attr]
+        mm = self.get_address_map(run.start_addr)
+        if mm:
+            mm.process = p
+        return p
 
     def _init_user_modules_from_config(self):
         proc_mod = None

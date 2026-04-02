@@ -122,6 +122,7 @@ class Run:
         self.coverage: set[int] = set()
         self.memory_regions: list[dict[str, Any]] = []
         self.loaded_modules: list[dict[str, Any]] = []
+        self.init_regs: dict[int, int] = {}
 
     def get_api_count(self):
         """

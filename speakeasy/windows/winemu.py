@@ -403,38 +403,61 @@ class WindowsEmulator(BinaryEmulator):
         """
         Start emulating at the specified address
         """
-        self.reset_stack(self.stack_base)
         run = Run()
         run.type = f"call_0x{addr:x}"
         run.start_addr = addr
         run.args = params
 
         if not self.run_queue:
-            self._ensure_process_context()
             self.add_run(run)
             self.start()
         else:
             self.add_run(run)
 
-    def _ensure_process_context(self):
+    def _resolve_run_process(self, run):
+        if run.process_context:
+            return run.process_context
+        if run.thread and getattr(run.thread, "process", None):
+            return run.thread.process
         if self.curr_process:
-            return
+            return self.curr_process
+        return self._create_default_process(run)
+
+    def _create_default_process(self, run):
         p = objman.Process(self)
         self.processes.append(p)
-        self.curr_process = p
-        self.om.objects.update({p.address: p})
+        self.om.objects.update({p.address: p})  # type: ignore[union-attr]
+        return p
 
-        t = objman.Thread(self, stack_base=self.stack_base)
-        self.om.objects.update({t.address: t})
-        self.curr_process.threads.append(t)
-        self.curr_thread = t
-
-        peb = self.alloc_peb(self.curr_process)
-        self.init_teb(t, peb)
+    def _resolve_run_thread(self, run, proc):
+        if run.thread:
+            tp = getattr(run.thread, "process", None)
+            if tp is None:
+                run.thread.process = proc
+                if run.thread not in proc.threads:
+                    proc.threads.append(run.thread)
+            elif tp is not proc:
+                raise WindowsEmuError(
+                    f"Run thread is bound to a different process "
+                    f"(thread.process={tp!r}, resolved={proc!r})"
+                )
+            return run.thread
+        if self.kernel_mode:
+            return None
+        thread = objman.Thread(self, stack_base=self.stack_base)
+        self.om.objects.update({thread.address: thread})  # type: ignore[union-attr]
+        thread.process = proc
+        proc.threads.append(thread)
+        run.thread = thread
+        return thread
 
     def _prepare_run_context(self, run):
         """
         Prepare CPU and memory state for the given run without starting emulation.
+
+        This is the single canonical path for process/thread/PEB/TEB/TLS
+        activation. All run types (call, module entry, shellcode, thread)
+        converge here.
         """
         logger.info("* exec: %s", run.type)
 
@@ -447,30 +470,24 @@ class WindowsEmulator(BinaryEmulator):
         stk_ptr = self.get_stack_ptr()
 
         self.set_func_args(stk_ptr, self.return_hook, *run.args)
+        for reg, val in run.init_regs.items():
+            self.reg_write(reg, val)
         stk_ptr = self.get_stack_ptr()
         stk_map = self.get_address_map(stk_ptr)
 
         self.curr_run.stack = MemAccess(base=stk_map.base, size=stk_map.size)
 
-        # Set the process context if possible
-        if run.process_context:
-            # Init a new peb if the process context changed:
-            if run.process_context != self.get_current_process():
-                self.alloc_peb(run.process_context)
-            self.set_current_process(run.process_context)
-        if run.thread:
-            self.set_current_thread(run.thread)
-        elif not self.kernel_mode:
-            thread = objman.Thread(self, stack_base=self.stack_base)
-            self.om.objects.update({thread.address: thread})
-            if self.curr_process:
-                thread.process = self.curr_process
-                self.curr_process.threads.append(thread)
-            run.thread = thread
+        proc = self._resolve_run_process(run)
+        run.process_context = proc
+        self.set_current_process(proc)
+        self.alloc_peb(proc)
+
+        thread = self._resolve_run_thread(run, proc)
+        if thread:
             self.set_current_thread(thread)
+            run.thread = thread
 
         if not self.kernel_mode:
-            # Reset the TIB data
             thread = self.get_current_thread()
             if thread:
                 self.init_teb(thread, self.curr_process.peb)  # type: ignore[union-attr]
@@ -534,8 +551,7 @@ class WindowsEmulator(BinaryEmulator):
         self.set_hooks()
         self._set_emu_hooks()
 
-        # Initialize run context/register state before exposing the target to GDB,
-        # so the first stop reports a meaningful PC/SP/etc.
+        self.reset_stack(self.stack_base)
         self._prepare_run_context(run)
 
         if self.gdb_port is not None:
