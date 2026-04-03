@@ -105,6 +105,7 @@ class WindowsEmulator(BinaryEmulator):
         self.callbacks: list[tuple[int, str, str]] = []
         self.mem_trace_hooks: list[Any] = []
         self.coverage_hook: Any | None = None
+        self.pseudocode_hook: Any | None = None
         self.debug_hook: Any | None = None
         self.kernel_mode: bool = False
         self.virtual_mem_base: int = 0x50000
@@ -238,6 +239,16 @@ class WindowsEmulator(BinaryEmulator):
 
         logger.debug("installing coverage hooks")
         self.coverage_hook = self.add_code_hook(cb=self._hook_code_coverage)
+
+    def set_pseudocode_hooks(self):
+        if not self.profiler or not self.profiler.is_pseudocode_enabled():
+            return
+
+        if self.pseudocode_hook:
+            return
+
+        logger.debug("installing pseudocode hooks")
+        self.pseudocode_hook = self.add_code_hook(cb=self._hook_code_pseudocode)
 
     def set_debug_hooks(self):
         if not self.debug:
@@ -2089,6 +2100,21 @@ class WindowsEmulator(BinaryEmulator):
             return True
         except Exception as e:
             logger.exception("Exception during code hook (coverage)")
+            error = self.get_error_info(str(e), self.get_pc(), traceback=traceback.format_exc())
+            self.curr_run.error = error  # type: ignore[union-attr]
+            self.on_emu_complete()
+            return False
+
+    def _hook_code_pseudocode(self, emu, addr, size):
+        try:
+            symbol = self.get_symbol_from_address(addr)
+            if symbol:
+                return True
+            if self.profiler:
+                self.profiler.record_instruction(self.curr_run, addr, size)
+            return True
+        except Exception as e:
+            logger.exception("Exception during code hook (pseudocode)")
             error = self.get_error_info(str(e), self.get_pc(), traceback=traceback.format_exc())
             self.curr_run.error = error  # type: ignore[union-attr]
             self.on_emu_complete()

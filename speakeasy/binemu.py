@@ -72,6 +72,7 @@ class BinaryEmulator(MemoryManager, ABC):
         self.hooks: dict[int, Any] = {}
 
         self.profiler: Profiler = Profiler()
+        self.profiler.attach_emulator(self)
 
         self.runtime: float = 0
 
@@ -98,6 +99,35 @@ class BinaryEmulator(MemoryManager, ABC):
         if self.profiler:
             return self.profiler.get_json_report()
         return None
+
+    def get_pseudocode_text(self) -> str:
+        if self.profiler:
+            return self.profiler.get_pseudocode_text()
+        return ""
+
+    def get_pseudocode_visual(self, format_name: str = "svg") -> str:
+        if self.profiler:
+            return self.profiler.get_pseudocode_visual(format_name=format_name)
+        return ""
+
+    def enable_pseudocode(
+        self,
+        enabled: bool = True,
+        include_comments: bool = True,
+        string_encoding: str = "utf8",
+        keep_filtered_jumps: bool = False,
+        show_register_values: bool = False,
+        enable_heuristics: bool = False,
+    ) -> None:
+        if self.profiler:
+            self.profiler.enable_pseudocode(
+                enabled,
+                include_comments=include_comments,
+                string_encoding=string_encoding,
+                keep_filtered_jumps=keep_filtered_jumps,
+                show_register_values=show_register_values,
+                enable_heuristics=enable_heuristics,
+            )
 
     def _parse_config(self, config: SpeakeasyConfig):
         """

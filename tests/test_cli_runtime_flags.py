@@ -18,3 +18,15 @@ def test_cli_rejects_removed_runtime_flags():
 
         assert result.returncode != 0
         assert "unrecognized arguments" in result.stderr
+
+
+def test_cli_help_lists_pseudocode_extension_flags():
+    result = subprocess.run(
+        [sys.executable, "-m", "speakeasy.cli", "--help"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "--pseudocode-show-register-values" in result.stdout
+    assert "--pseudocode-enable-heuristics" in result.stdout

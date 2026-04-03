@@ -5,10 +5,14 @@ __report_version__ = "3.0.0"
 
 import hashlib
 import time
+import urllib.parse
+import weakref
 from collections import deque
 from typing import Any
+from xml.sax.saxutils import escape
 
 from speakeasy.artifacts import MAX_EMBEDDED_FILE_SIZE, ArtifactStore
+from speakeasy.pseudocode import PseudocodeRenderer
 from speakeasy.profiler_events import (
     FILE_CREATE,
     FILE_OPEN,
@@ -120,6 +124,7 @@ class Run:
         self.error: ErrorInfo | None = None
         self.num_apis: int = 0
         self.coverage: set[int] = set()
+        self.instruction_trace: list[dict[str, Any]] = []
         self.memory_regions: list[dict[str, Any]] = []
         self.loaded_modules: list[dict[str, Any]] = []
 
@@ -149,6 +154,189 @@ class Profiler:
         self.meta: dict[str, Any] = {}
         self.runs: list[Run] = []
         self.artifact_store = ArtifactStore()
+        self.emulator_ref: weakref.ReferenceType[Any] | None = None
+        self.pseudocode_enabled: bool = False
+        self.pseudocode_include_comments: bool = True
+        self.pseudocode_string_encoding: str = "utf8"
+        self.pseudocode_keep_filtered_jumps: bool = False
+        self.pseudocode_show_register_values: bool = False
+        self.pseudocode_enable_heuristics: bool = False
+        self.pseudocode_renderer: PseudocodeRenderer | None = None
+
+    def attach_emulator(self, emulator: Any) -> None:
+        self.emulator_ref = weakref.ref(emulator)
+
+    def enable_pseudocode(
+        self,
+        enabled: bool = True,
+        include_comments: bool = True,
+        string_encoding: str = "utf8",
+        keep_filtered_jumps: bool = False,
+        show_register_values: bool = False,
+        enable_heuristics: bool = False,
+    ) -> None:
+        self.pseudocode_enabled = enabled
+        self.pseudocode_include_comments = include_comments
+        self.pseudocode_string_encoding = string_encoding
+        self.pseudocode_keep_filtered_jumps = keep_filtered_jumps
+        self.pseudocode_show_register_values = show_register_values
+        self.pseudocode_enable_heuristics = enable_heuristics
+        self.pseudocode_renderer = None
+
+    def is_pseudocode_enabled(self) -> bool:
+        return self.pseudocode_enabled
+
+    def get_emulator(self) -> Any | None:
+        if self.emulator_ref is None:
+            return None
+        return self.emulator_ref()
+
+    def get_pseudocode_renderer(self) -> PseudocodeRenderer | None:
+        if not self.pseudocode_enabled:
+            return None
+        if self.pseudocode_renderer is not None:
+            return self.pseudocode_renderer
+        emulator = self.get_emulator()
+        if emulator is None:
+            return None
+        self.pseudocode_renderer = PseudocodeRenderer(
+            emulator,
+            include_comments=self.pseudocode_include_comments,
+            string_encoding=self.pseudocode_string_encoding,
+            keep_filtered_jumps_in_comments=self.pseudocode_keep_filtered_jumps,
+            show_register_values=self.pseudocode_show_register_values,
+            enable_heuristics=self.pseudocode_enable_heuristics,
+        )
+        return self.pseudocode_renderer
+
+    def record_instruction(self, run: Run | None, address: int, size: int) -> None:
+        if run is None:
+            return
+        renderer = self.get_pseudocode_renderer()
+        if renderer is None:
+            return
+        record = renderer.render_instruction_record(address, size)
+        if record:
+            run.instruction_trace.append(record)
+
+    def get_pseudocode_lines(self) -> list[str]:
+        lines: list[str] = []
+        include_headers = sum(1 for run in self.runs if run.instruction_trace) > 1
+        renderer = self.get_pseudocode_renderer()
+        for index, run in enumerate(self.runs):
+            if not run.instruction_trace:
+                continue
+            if include_headers:
+                start_addr = hex(run.start_addr) if run.start_addr is not None else "unknown"
+                lines.append(f"// entry_point[{index}] start={start_addr} type={run.type}")
+            processed_records = self._get_processed_instruction_trace(run, renderer)
+            for record in processed_records:
+                if renderer is None:
+                    continue
+                line = renderer.format_instruction_record(record)
+                if line:
+                    lines.append(line)
+            if include_headers:
+                lines.append("")
+        if lines and lines[-1] == "":
+            lines.pop()
+        return lines
+
+    def get_pseudocode_text(self) -> str:
+        return "\n".join(self.get_pseudocode_lines())
+
+    def get_pseudocode_visual(self, format_name: str = "svg") -> str:
+        lines = self.get_pseudocode_lines()
+        format_name = format_name.lower()
+        if format_name == "svg":
+            return self._render_pseudocode_svg(lines)
+        if format_name == "xml":
+            return self._render_pseudocode_xml(lines)
+        raise ProfileError(f"Unsupported pseudocode visual format: {format_name}")
+
+    def _render_pseudocode_xml(self, lines: list[str]) -> str:
+        stylesheet = (
+            "pseudocode{display:block;font-family:Consolas,monospace;background:#0f172a;color:#e2e8f0;"
+            "padding:16px} entry{display:block;margin:0 0 18px 0;padding:12px;border:1px solid #334155}"
+            " line{display:block;margin:8px 0;padding:8px;background:#111827;border-left:3px solid #475569}"
+            " address,pseudocode_text,assembly,filtered,target_symbol,string_value,context,item{display:block;"
+            "white-space:pre-wrap} address{color:#93c5fd} pseudocode_text{color:#f8fafc}"
+            " assembly{color:#cbd5e1} filtered{color:#fbbf24} target_symbol{color:#86efac}"
+            " string_value{color:#f9a8d4} context{margin-top:4px;color:#94a3b8} item{margin-left:16px}"
+        )
+        stylesheet_href = "data:text/css," + urllib.parse.quote(stylesheet, safe="")
+        rendered = [
+            '<?xml version="1.0" encoding="utf-8"?>',
+            f'<?xml-stylesheet type="text/css" href="{stylesheet_href}"?>',
+            "<pseudocode>",
+        ]
+        line_index = 1
+        for run_index, run in enumerate(self.runs):
+            if not run.instruction_trace:
+                continue
+            start_addr = hex(run.start_addr) if run.start_addr is not None else "unknown"
+            rendered.append(f'  <entry index="{run_index}" start="{escape(start_addr)}" type="{escape(str(run.type))}">')
+            processed_records = self._get_processed_instruction_trace(run, self.get_pseudocode_renderer())
+            for record in processed_records:
+                rendered.append(
+                    '    <line index="{index}" filtered="{filtered}">'.format(
+                        index=line_index,
+                        filtered=str(bool(record.get("filtered"))).lower(),
+                    )
+                )
+                rendered.append(f'      <address>{escape(str(record.get("address", "")))}</address>')
+                rendered.append(f'      <pseudocode_text>{escape(str(record.get("pseudocode") or ""))}</pseudocode_text>')
+                rendered.append(f'      <assembly>{escape(str(record.get("assembly") or ""))}</assembly>')
+                rendered.append(f'      <filtered>{escape(str(record.get("filtered") or False).lower())}</filtered>')
+                rendered.append(f'      <target_symbol>{escape(str(record.get("target_symbol") or ""))}</target_symbol>')
+                rendered.append(f'      <string_value>{escape(str(record.get("string_value") or ""))}</string_value>')
+                rendered.append(f'      <object_display>{escape(str(record.get("object_display") or ""))}</object_display>')
+                rendered.append("      <register_values>")
+                for key, value in (record.get("register_values") or {}).items():
+                    rendered.append(f'        <register name="{escape(str(key))}">{escape(str(value))}</register>')
+                rendered.append("      </register_values>")
+                rendered.append("      <variable_aliases>")
+                for key, value in (record.get("variable_aliases") or {}).items():
+                    rendered.append(f'        <alias name="{escape(str(key))}">{escape(str(value))}</alias>')
+                rendered.append("      </variable_aliases>")
+                rendered.append("      <context>")
+                for item in record.get("context", []):
+                    rendered.append(f"        <item>{escape(str(item))}</item>")
+                rendered.append("      </context>")
+                rendered.append("    </line>")
+                line_index += 1
+            rendered.append("  </entry>")
+        rendered.append("</pseudocode>")
+        return "\n".join(rendered)
+
+    def _get_processed_instruction_trace(self, run: Run, renderer: PseudocodeRenderer | None) -> list[dict[str, Any]]:
+        records = list(run.instruction_trace)
+        if renderer is None:
+            return records
+        return renderer.compact_instruction_records(records)
+
+    def _render_pseudocode_svg(self, lines: list[str]) -> str:
+        font_size = 14
+        line_height = 22
+        padding_x = 20
+        padding_y = 24
+        max_len = max((len(line) for line in lines), default=0)
+        width = max(800, padding_x * 2 + max_len * 9)
+        height = max(120, padding_y * 2 + max(len(lines), 1) * line_height)
+        rendered = [
+            '<?xml version="1.0" encoding="utf-8"?>',
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+            f'<rect width="{width}" height="{height}" fill="#0f172a"/>',
+        ]
+        for index, line in enumerate(lines, start=1):
+            y = padding_y + index * line_height
+            escaped = escape(line)
+            rendered.append(
+                f'<text x="{padding_x}" y="{y}" fill="#e2e8f0" font-family="Consolas, Menlo, monospace" '
+                f'font-size="{font_size}">{escaped}</text>'
+            )
+        rendered.append("</svg>")
+        return "\n".join(rendered)
 
     def add_input_metadata(self, meta):
         """

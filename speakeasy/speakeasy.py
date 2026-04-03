@@ -362,6 +362,33 @@ class Speakeasy:
         """
         return self.emu.get_json_report()  # type: ignore[no-any-return, union-attr]
 
+    @check_init
+    def get_pseudocode_text(self) -> str:
+        return self.emu.get_pseudocode_text()  # type: ignore[no-any-return, union-attr]
+
+    @check_init
+    def get_pseudocode_visual(self, format_name: str = "svg") -> str:
+        return self.emu.get_pseudocode_visual(format_name=format_name)  # type: ignore[no-any-return, union-attr]
+
+    @check_init
+    def enable_pseudocode(
+        self,
+        enabled: bool = True,
+        include_comments: bool = True,
+        string_encoding: str = "utf8",
+        keep_filtered_jumps: bool = False,
+        show_register_values: bool = False,
+        enable_heuristics: bool = False,
+    ) -> None:
+        self.emu.enable_pseudocode(  # type: ignore[union-attr]
+            enabled,
+            include_comments=include_comments,
+            string_encoding=string_encoding,
+            keep_filtered_jumps=keep_filtered_jumps,
+            show_register_values=show_register_values,
+            enable_heuristics=enable_heuristics,
+        )
+
     def add_api_hook(self, cb: Callable, module="", api_name="", argc=0, call_conv=None):
         """
         Set a callback to fire when a specified API is called during emulation

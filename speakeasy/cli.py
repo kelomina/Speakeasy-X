@@ -33,6 +33,24 @@ def setup_logging(verbose: bool) -> None:
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
 
 
+def get_pseudocode_visual_format(path: str) -> str:
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".svg":
+        return "svg"
+    if ext == ".xml":
+        return "xml"
+    raise ValueError("Unsupported pseudocode visual output extension. Use .svg or .xml")
+
+
+def get_pseudocode_string_encoding(value: str) -> str:
+    encoding = value.lower()
+    if encoding in ("utf8", "utf-8"):
+        return "utf8"
+    if encoding in ("utf16", "utf-16", "utf16le", "utf-16le"):
+        return "utf16"
+    raise ValueError("Unsupported pseudocode string encoding. Use utf8 or utf16")
+
+
 def emulate_binary(
     q,
     exit_event,
@@ -47,6 +65,13 @@ def emulate_binary(
     emulate_children=False,
     verbose=False,
     gdb_port=None,
+    pseudocode_out="",
+    pseudocode_visual_out="",
+    pseudocode_comments=True,
+    pseudocode_string_encoding="utf8",
+    pseudocode_keep_filtered_jumps=False,
+    pseudocode_show_register_values=False,
+    pseudocode_enable_heuristics=False,
 ):
     setup_logging(verbose)
 
@@ -54,6 +79,7 @@ def emulate_binary(
     se = None
     try:
         se = Speakeasy(config=cfg, argv=argv, exit_event=exit_event, gdb_port=gdb_port)
+        pseudocode_enabled = bool(pseudocode_out or pseudocode_visual_out)
         if do_raw:
             arch = arch.lower()
             if arch == "x86":
@@ -64,9 +90,25 @@ def emulate_binary(
                 raise Exception(f"Unsupported architecture: {arch}")
 
             sc_addr = se.load_shellcode(fpath, arch)
+            if pseudocode_enabled:
+                se.enable_pseudocode(
+                    include_comments=pseudocode_comments,
+                    string_encoding=pseudocode_string_encoding,
+                    keep_filtered_jumps=pseudocode_keep_filtered_jumps,
+                    show_register_values=pseudocode_show_register_values,
+                    enable_heuristics=pseudocode_enable_heuristics,
+                )
             se.run_shellcode(sc_addr, offset=raw_offset or 0)
         else:
             module = se.load_module(fpath)
+            if pseudocode_enabled:
+                se.enable_pseudocode(
+                    include_comments=pseudocode_comments,
+                    string_encoding=pseudocode_string_encoding,
+                    keep_filtered_jumps=pseudocode_keep_filtered_jumps,
+                    show_register_values=pseudocode_show_register_values,
+                    enable_heuristics=pseudocode_enable_heuristics,
+                )
             se.run_module(
                 module,
                 all_entrypoints=True,
@@ -77,6 +119,19 @@ def emulate_binary(
         if se is not None:
             report = se.get_json_report()
         q.put(report)
+
+        if pseudocode_out and se is not None:
+            pseudocode_text = se.get_pseudocode_text()
+            logger.info("* Saving pseudocode to %s", pseudocode_out)
+            with open(pseudocode_out, "w", encoding="utf-8") as f:
+                f.write(pseudocode_text)
+
+        if pseudocode_visual_out and se is not None:
+            visual_format = get_pseudocode_visual_format(pseudocode_visual_out)
+            pseudocode_visual = se.get_pseudocode_visual(format_name=visual_format)
+            logger.info("* Saving pseudocode visual to %s", pseudocode_visual_out)
+            with open(pseudocode_visual_out, "w", encoding="utf-8") as f:
+                f.write(pseudocode_visual)
 
         if dropped_files_path and se is not None:
             data = se.create_file_archive()
@@ -92,6 +147,13 @@ def run_main(parser: argparse.ArgumentParser, args: argparse.Namespace, config_s
     target = args.target
     output = args.output
     dropped_files_path = args.dropped_files_path
+    pseudocode_out = args.pseudocode_out
+    pseudocode_visual_out = args.pseudocode_visual_out
+    pseudocode_comments = args.pseudocode_comments
+    pseudocode_string_encoding = get_pseudocode_string_encoding(args.pseudocode_string_encoding)
+    pseudocode_keep_filtered_jumps = args.pseudocode_keep_filtered_jumps
+    pseudocode_show_register_values = args.pseudocode_show_register_values
+    pseudocode_enable_heuristics = args.pseudocode_enable_heuristics
     config_path = args.config
     emulate_children = args.emulate_children
     do_raw = args.do_raw
@@ -136,6 +198,12 @@ def run_main(parser: argparse.ArgumentParser, args: argparse.Namespace, config_s
     if not target:
         parser.error("No target file supplied")
 
+    if pseudocode_visual_out:
+        try:
+            get_pseudocode_visual_format(pseudocode_visual_out)
+        except ValueError as err:
+            parser.error(str(err))
+
     q: mp.Queue = mp.Queue()
     evt = mp.Event()
 
@@ -154,6 +222,13 @@ def run_main(parser: argparse.ArgumentParser, args: argparse.Namespace, config_s
             emulate_children=emulate_children,
             verbose=verbose,
             gdb_port=gdb_port,
+            pseudocode_out=pseudocode_out,
+            pseudocode_visual_out=pseudocode_visual_out,
+            pseudocode_comments=pseudocode_comments,
+            pseudocode_string_encoding=pseudocode_string_encoding,
+            pseudocode_keep_filtered_jumps=pseudocode_keep_filtered_jumps,
+            pseudocode_show_register_values=pseudocode_show_register_values,
+            pseudocode_enable_heuristics=pseudocode_enable_heuristics,
         )
         report = q.get()
     else:
@@ -175,6 +250,13 @@ def run_main(parser: argparse.ArgumentParser, args: argparse.Namespace, config_s
                 "emulate_children": emulate_children,
                 "verbose": verbose,
                 "gdb_port": gdb_port,
+                "pseudocode_out": pseudocode_out,
+                "pseudocode_visual_out": pseudocode_visual_out,
+                "pseudocode_comments": pseudocode_comments,
+                "pseudocode_string_encoding": pseudocode_string_encoding,
+                "pseudocode_keep_filtered_jumps": pseudocode_keep_filtered_jumps,
+                "pseudocode_show_register_values": pseudocode_show_register_values,
+                "pseudocode_enable_heuristics": pseudocode_enable_heuristics,
             },
         )
         p.start()
@@ -220,6 +302,60 @@ def main():
     )
     parser.add_argument(
         "-o", "--output", action="store", dest="output", required=False, help="Path to output file to save report"
+    )
+    parser.add_argument(
+        "--pseudocode-out",
+        action="store",
+        dest="pseudocode_out",
+        required=False,
+        help="Path to output file to save simplified pseudocode",
+    )
+    parser.add_argument(
+        "--pseudocode-visual-out",
+        action="store",
+        dest="pseudocode_visual_out",
+        required=False,
+        help="Path to output file to save pseudocode visualization (.svg or .xml)",
+    )
+    parser.add_argument(
+        "--pseudocode-comments",
+        action=argparse.BooleanOptionalAction,
+        dest="pseudocode_comments",
+        default=True,
+        required=False,
+        help="Include assembly comments and resolved context in pseudocode output",
+    )
+    parser.add_argument(
+        "--pseudocode-string-encoding",
+        action="store",
+        dest="pseudocode_string_encoding",
+        default="utf8",
+        required=False,
+        help="String decoding mode for pseudocode output: utf8 or utf16",
+    )
+    parser.add_argument(
+        "--pseudocode-keep-filtered-jumps",
+        action=argparse.BooleanOptionalAction,
+        dest="pseudocode_keep_filtered_jumps",
+        default=False,
+        required=False,
+        help="Keep filtered jump instructions as comment-only lines in pseudocode output",
+    )
+    parser.add_argument(
+        "--pseudocode-show-register-values",
+        action=argparse.BooleanOptionalAction,
+        dest="pseudocode_show_register_values",
+        default=False,
+        required=False,
+        help="Show current register values in pseudocode comments and XML output",
+    )
+    parser.add_argument(
+        "--pseudocode-enable-heuristics",
+        action=argparse.BooleanOptionalAction,
+        dest="pseudocode_enable_heuristics",
+        default=False,
+        required=False,
+        help="Enable heuristic recovery for aliases, function names, memory abstraction and folding",
     )
     parser.add_argument(
         "--argv",
