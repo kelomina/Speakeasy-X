@@ -14,7 +14,7 @@ Under the hood, Loader is just the source adapter layer. Each loader type (PE, s
 
 The actual side effects happen in `load_image()`, which materializes that data into emulator state: map/write memory, patch IAT entries with sentinels, register imports in the global `import_table`, apply section protections, and install symbol/access hooks. The returned RuntimeModule is the stable runtime handle used everywhere else (`self.modules`, module lookups, PEB population), so the rest of Speakeasy can treat PE files, shellcode, and synthetic modules the same way.
 
-## Docker-style host mounts with --volume
+## Host file mounts with --volume
 
 A new -V/--volume CLI option maps host files or directories into the emulated Windows filesystem using host_path:guest_path syntax. Volume entries are expanded and injected with precedence so mounted data is resolved before default file mappings. This gives analysts a direct, repeatable way to stage sample dependencies without rewriting config files.
 

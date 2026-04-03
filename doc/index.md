@@ -1,38 +1,38 @@
-# Documentation index
+# 文档索引
 
-This page maps common tasks to the right Speakeasy documentation.
+本页面将常见任务映射到相应的 Speakeasy 文档。
 
-## Start here
+## 从这里开始
 
-- [Project README](../README.md)
-- [Installation and Docker usage](install.md)
-- [Help and troubleshooting](help.md)
+- [项目 README](../README.md)
+- [安装](install.md)
+- [帮助和故障排除](help.md)
 
-## CLI usage
+## 命令行用法
 
-- [CLI reference](cli-reference.md)
-- [CLI analysis recipes](cli-analysis-recipes.md)
-- [CLI environment overrides](cli-environment-overrides.md)
-- [CLI execution controls](cli-execution-controls.md)
-- [CLI help snapshot (showboat)](cli-help-showboat.md)
+- [命令行参考](cli-reference.md)
+- [命令行分析示例](cli-analysis-recipes.md)
+- [命令行环境覆盖](cli-environment-overrides.md)
+- [命令行执行控制](cli-execution-controls.md)
+- [命令行帮助快照 (showboat)](cli-help-showboat.md)
 
-## Configuration and reports
+## 配置和报告
 
-- [Configuration walkthrough](configuration.md)
-- [Report walkthrough](reporting.md)
-- [Memory management](memory.md)
-- [Limitations](limitations.md)
+- [配置详解](configuration.md)
+- [报告详解](reporting.md)
+- [内存管理](memory.md)
+- [局限性](limitations.md)
 
-## Debugging
+## 调试
 
-- [GDB debugging reference](gdb.md)
-- [GDB sessions (showboat)](gdb-examples.md)
+- [GDB 调试参考](gdb.md)
+- [GDB 会话 (showboat)](gdb-examples.md)
 
-## Extending and embedding
+## 扩展和嵌入
 
-- [Python library usage](library.md)
-- [Mounting host files with --volume](volumes.md)
-- [Adding API handlers](api-handlers.md)
-- [Examples directory](../examples/)
-- [Speakeasy 2 walkthrough outline](speakeasy2-walkthrough.md)
+- [Python 库用法](library.md)
+- [使用 --volume 挂载主机文件](volumes.md)
+- [添加 API 处理器](api-handlers.md)
+- [示例目录](../examples/)
+- [Speakeasy 2 详解大纲](speakeasy2-walkthrough.md)
 
