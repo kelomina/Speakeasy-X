@@ -3,6 +3,8 @@
 node_modules/
 .venv/
 venv/
+env/
+py312env/
 __pycache__/
 .mypy_cache/
 .pytest_cache/
@@ -72,4 +74,7 @@ htmlcov/
 *.tar.bz2
 *.tar.xz
 *.tar.zst
+
+
+speakeasy_emulator.egg-info/
 ```

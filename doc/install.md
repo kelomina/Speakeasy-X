@@ -2,6 +2,23 @@
 
 Speakeasy 需要 Python 3.10+。
 
+## Python 3.12+ 特别说明
+
+如果您使用 Python 3.12 或更高版本，请确保安装最新版本的依赖库，特别是 `unicorn` 库（需要 2.1.4 或更高版本），因为旧版本依赖已被移除的 `distutils` 模块。
+
+推荐在虚拟环境中安装：
+
+```console
+python -m venv venv
+# Windows:
+venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+
+pip install --upgrade pip
+pip install -e ".[dev]"
+```
+
 ## 从 PyPI 安装
 
 ```console
