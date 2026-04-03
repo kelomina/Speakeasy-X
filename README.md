@@ -30,6 +30,55 @@ jq '{sha256, arch, filetype, entry_points: (.entry_points | length)}' report.jso
 
 此代码片段的可执行证明：[doc/readme-quickstart-showboat.md](doc/readme-quickstart-showboat.md)。
 
+## 项目结构
+
+```
+Speakeasy-X/
+├── speakeasy/                 # 核心模拟框架
+│   ├── engines/              # CPU模拟引擎
+│   │   └── unicorn_eng.py    # Unicorn引擎实现
+│   ├── resources/            # 模拟资源文件
+│   │   ├── files/           # 默认文件资源
+│   │   └── web/             # Web相关诱饵资源
+│   ├── windows/              # Windows环境模拟
+│   │   ├── kernel_mods/     # 内核驱动支持模块
+│   │   ├── com.py           # COM组件模拟
+│   │   ├── cryptman.py      # 加密管理
+│   │   ├── driveman.py      # 驱动管理
+│   │   ├── fileman.py       # 文件系统模拟
+│   │   ├── ioman.py         # I/O管理
+│   │   ├── kernel.py        # Windows内核模拟
+│   │   ├── loaders.py       # PE/DLL加载器
+│   │   ├── netman.py        # 网络管理
+│   │   ├── regman.py        # 注册表模拟
+│   │   ├── sessman.py       # 会话管理
+│   │   └── winemu.py        # Win32模拟
+│   ├── winenv/               # Windows环境完整模拟
+│   │   ├── api/             # API实现
+│   │   │   ├── kernelmode/  # 内核模式API (ntoskrnl, hal等)
+│   │   │   └── usermode/    # 用户模式API (kernel32, ntdll等)
+│   │   ├── decoys/          # 诱饵文件 (x86/amd64)
+│   │   └── defs/            # Windows类型定义
+│   ├── cli.py               # 命令行工具
+│   ├── config.py            # 配置管理
+│   ├── memmgr.py            # 内存管理
+│   ├── profiler.py          # 性能分析
+│   └── speakeasy.py         # 主入口
+├── tests/                    # 测试套件
+│   ├── bins/               # 测试二进制文件
+│   ├── test_*.py           # 各功能测试
+│   └── pma_*.py            # PMA样本测试
+├── doc/                      # 详细文档
+│   ├── api-handlers.md     # API处理器开发
+│   ├── cli-reference.md    # CLI参考
+│   ├── configuration.md    # 配置详解
+│   ├── gdb.md              # GDB调试
+│   ├── library.md          # 库使用指南
+│   └── ...
+├── pyproject.toml           # 项目配置
+└── README.md                 # 本文件
+```
+
 ## 文档导航
 
 ### 从这里开始
@@ -67,4 +116,4 @@ jq '{sha256, arch, filetype, entry_points: (.entry_points | length)}' report.jso
 
 请先查看 [doc/help.md](doc/help.md)。
 
-如果您仍然需要帮助，请在 [github.com/mandiant/speakeasy/issues](https://github.com/mandiant/speakeasy/issues) 上提交问题。
+如果您仍然需要帮助，请在 [github.com/kelomina/Speakeasy-X/issues](https://github.com/kelomina/Speakeasy-X/issues) 上提交问题。

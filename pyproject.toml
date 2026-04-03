@@ -3,15 +3,16 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "speakeasy-emulator"
+name = "Speakeasy-X"
 dynamic = ["version"]
-description = "Speakeasy malware emulation framework"
+description = "A test for Windows kernel and user mode emulation."
 readme = "README.md"
 license = "MIT"
 authors = [
-    {name = "Andrew Davis"}
+    {name = "Andrew Davis"},
+    {name = "Saika Kolomina", email = "Saika@kolostudio.fun"}
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
@@ -37,9 +38,9 @@ dev = [
 gdb = ["udbserver>=0.2.1"]
 
 [project.urls]
-Homepage = "https://github.com/mandiant/speakeasy"
-Repository = "https://github.com/mandiant/speakeasy"
-Issues = "https://github.com/mandiant/speakeasy/issues"
+Homepage = "https://github.com/kelomina/Speakeasy-X"
+Repository = "https://github.com/kelomina/Speakeasy-X"
+Issues = "https://github.com/kelomina/Speakeasy-X/issues"
 
 [project.scripts]
 speakeasy = "speakeasy.cli:main"
