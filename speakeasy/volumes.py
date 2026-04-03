@@ -1,4 +1,4 @@
-"""Docker-style --volume support for mounting host files into the emulated filesystem."""
+"""模拟文件系统的主机文件挂载支持。"""
 
 from __future__ import annotations
 
@@ -6,48 +6,48 @@ from pathlib import Path, PureWindowsPath
 
 
 def parse_volume_spec(spec: str) -> tuple[Path, PureWindowsPath]:
-    """Parse a ``host_path:guest_path`` volume specification.
+    """解析 ``host_path:guest_path`` 卷规格。
 
-    Handles Windows drive-letter colons on both sides (e.g.
-    ``C:\\samples:C:\\guest``).  The real separator is the first ``:``
-    that is NOT the second character of a drive-letter prefix.
+    处理两侧的 Windows 驱动器字母冒号（例如
+    ``C:\\samples:C:\\guest``）。真正的分隔符是第一个 ``:``，
+    它不是驱动器字母前缀的第二个字符。
     """
     if not spec:
         raise ValueError("Empty volume specification")
 
-    # Find the separator colon.  Skip a leading drive letter (X:) on the
-    # host side, then look for the next colon.
+    # 查找分隔符冒号。跳过主机侧的前导驱动器字母 (X:)，
+    # 然后查找下一个冒号。
     start = 0
     if len(spec) >= 2 and spec[1] == ":":
-        # Host path starts with a drive letter — skip past it.
+        # 主机路径以驱动器字母开头——跳过它。
         start = 2
 
     idx = spec.find(":", start)
     if idx == -1:
-        raise ValueError(f"Invalid volume spec (missing ':' separator): {spec!r}")
+        raise ValueError(f"无效的卷规格（缺少 ':' 分隔符）：{spec!r}")
 
     host_str = spec[:idx]
     guest_str = spec[idx + 1 :]
 
     if not host_str:
-        raise ValueError(f"Empty host path in volume spec: {spec!r}")
+        raise ValueError(f"卷规格中主机路径为空：{spec!r}")
     if not guest_str:
-        raise ValueError(f"Empty guest path in volume spec: {spec!r}")
+        raise ValueError(f"卷规格中客户机路径为空：{spec!r}")
 
     return Path(host_str), PureWindowsPath(guest_str)
 
 
 def expand_volume_to_entries(host_path: Path, guest_path: PureWindowsPath) -> list[dict]:
-    """Expand a volume mapping into ``FileEntryFullPath``-compatible dicts.
+    """将卷映射扩展为 ``FileEntryFullPath`` 兼容的字典。
 
-    If *host_path* is a file, one entry is returned.  If it is a
-    directory, every file underneath it (recursively) becomes an entry
-    with the relative path appended to *guest_path*.
+    如果 *host_path* 是文件，则返回一个条目。如果是目录，
+    则其下的每个文件（递归地）都会成为一个条目，
+    相对路径附加到 *guest_path*。
     """
     host_path = host_path.resolve()
 
     if not host_path.exists():
-        raise FileNotFoundError(f"Volume host path does not exist: {host_path}")
+        raise FileNotFoundError(f"卷主机路径不存在：{host_path}")
 
     entries: list[dict] = []
 
@@ -77,10 +77,10 @@ def expand_volume_to_entries(host_path: Path, guest_path: PureWindowsPath) -> li
 
 
 def apply_volumes(config: dict, volume_specs: list[str]) -> dict:
-    """Parse *volume_specs* and prepend the resulting file entries to *config*.
+    """解析 *volume_specs* 并将生成的文件条目前置到 *config*。
 
-    Entries are prepended so they win first-match resolution in
-    ``get_emu_file()``.
+    条目被前置，以便它们在 ``get_emu_file()`` 中
+    优先匹配解决。
     """
     if not volume_specs:
         return config

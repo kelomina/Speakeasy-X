@@ -32,6 +32,6 @@ jq '{sha256, arch, filetype, entry_points: (.entry_points | length)}' /tmp/readm
 
 - [Project README](../README.md)
 - [Documentation index](index.md)
-- [Installation and Docker usage](install.md)
+- [Installation](install.md)
 - [CLI reference](cli-reference.md)
 - [Help and troubleshooting](help.md)

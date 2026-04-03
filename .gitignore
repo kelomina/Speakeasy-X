@@ -1,113 +1,75 @@
-# Byte-compiled / optimized / DLL files
+```
+# Dependencies
+node_modules/
+.venv/
+venv/
 __pycache__/
-*.py[cod]
-*$py.class
+.mypy_cache/
+.pytest_cache/
 
-# C extensions
-*.so
-
-.DS_Store
-.vscode/
-# Distribution / packaging
-.Python
-env/
-build/
-develop-eggs/
+# Build artifacts
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-*.swo
-*.swp
-
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
-*.log
-local_settings.py
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
+build/
 target/
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# pyenv
-.python-version
-
-# celery beat schedule file
-celerybeat-schedule
-
-# SageMath parsed files
-*.sage.py
-
-# dotenv
+# Environment
 .env
+.env.local
+.env.*
 
-# virtualenv
-.venv
-venv/
-ENV/
+# Editors
+.vscode/
+.idea/
 
-# Spyder project settings
-.spyderproject
-.spyproject
+# Logs and temp files
+*.log
+*.tmp
+*.swp
 
-# Rope project settings
-.ropeproject
+# OS generated files
+.DS_Store
+Thumbs.db
 
-# mkdocs documentation
-/site
+# Compiled files
+*.pyc
+*.class
+*.o
+*.exe
+*.dll
+*.so
+*.a
+*.obj
+*.out
 
-# mypy
-.mypy_cache/
+# Coverage
+coverage/
+htmlcov/
+.coverage
 
-# PyCharm
-.idea
+# Gradle
+.gradle/
 
-report.json
-/uv.lock
-.claude/
+# Compressed files
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
+```
