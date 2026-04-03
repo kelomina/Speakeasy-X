@@ -230,6 +230,11 @@ class Profiler:
                 start_addr = hex(run.start_addr) if run.start_addr is not None else "unknown"
                 lines.append(f"// entry_point[{index}] start={start_addr} type={run.type}")
             processed_records = self._get_processed_instruction_trace(run, renderer)
+            function_info = self._describe_function_block(index, processed_records)
+            if function_info:
+                params = ", ".join(function_info["params"])
+                returns = ", ".join(function_info["returns"]) if function_info["returns"] else "void"
+                lines.append(f"// function {function_info['name']}({params}) -> {returns}")
             for record in processed_records:
                 if renderer is None:
                     continue
@@ -277,6 +282,18 @@ class Profiler:
             start_addr = hex(run.start_addr) if run.start_addr is not None else "unknown"
             rendered.append(f'  <entry index="{run_index}" start="{escape(start_addr)}" type="{escape(str(run.type))}">')
             processed_records = self._get_processed_instruction_trace(run, self.get_pseudocode_renderer())
+            function_info = self._describe_function_block(run_index, processed_records)
+            if function_info:
+                rendered.append(f'    <function name="{escape(function_info["name"])}">')
+                rendered.append("      <params>")
+                for param in function_info["params"]:
+                    rendered.append(f"        <param>{escape(param)}</param>")
+                rendered.append("      </params>")
+                rendered.append("      <returns>")
+                for ret in function_info["returns"]:
+                    rendered.append(f"        <value>{escape(ret)}</value>")
+                rendered.append("      </returns>")
+                rendered.append("    </function>")
             for record in processed_records:
                 rendered.append(
                     '    <line index="{index}" filtered="{filtered}">'.format(
@@ -314,6 +331,24 @@ class Profiler:
         if renderer is None:
             return records
         return renderer.compact_instruction_records(records)
+
+    def _describe_function_block(self, run_index: int, records: list[dict[str, Any]]) -> dict[str, list[str] | str]:
+        params: list[str] = []
+        returns: list[str] = []
+        for record in records:
+            for value in (record.get("variable_aliases") or {}).values():
+                if not isinstance(value, str):
+                    continue
+                if value == "thisObj" or value.startswith("arg_"):
+                    if value not in params:
+                        params.append(value)
+                if value == "retVal" and value not in returns:
+                    returns.append(value)
+        return {
+            "name": f"entry_point_{run_index}",
+            "params": params,
+            "returns": returns,
+        }
 
     def _render_pseudocode_svg(self, lines: list[str]) -> str:
         font_size = 14

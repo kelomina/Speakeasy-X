@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import string
 from typing import Any
 
@@ -55,6 +56,7 @@ class PseudocodeRenderer:
             resolved = self._resolve_operand(insn, op)
             resolved_ops.append(resolved)
             context.extend(part for part in resolved["context"] if isinstance(part, str))
+        context.extend(self._get_instruction_annotations(insn, resolved_ops))
 
         pseudocode = self._to_pseudocode(insn, resolved_ops)
         asm = f"{insn.mnemonic} {insn.op_str}".strip()
@@ -108,6 +110,7 @@ class PseudocodeRenderer:
         return line
 
     def compact_instruction_records(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        records = self._prune_noise_records(records)
         if not self.enable_heuristics:
             return records
         records = self._recover_function_aliases(records)
@@ -129,7 +132,8 @@ class PseudocodeRenderer:
                 continue
             compacted.append(self._fold_repeated_block(records[index:end], family))
             index = end
-        return self._fold_handwritten_loop_blocks(compacted)
+        compacted = self._fold_handwritten_loop_blocks(compacted)
+        return self._recover_while_loops(compacted)
 
     def _resolve_operand(self, insn, operand) -> dict[str, Any]:
         if operand.type == x86_const.X86_OP_REG:
@@ -332,22 +336,28 @@ class PseudocodeRenderer:
             return None
         exprs = [self._render_expr(op) for op in operands]
         raw_exprs = [str(op["expr"]) for op in operands]
+        lvalues = [self._render_lvalue(op) for op in operands]
+
+        if mnemonic in {"push", "pop"}:
+            return None
+        if mnemonic in {"add", "sub"} and lvalues and lvalues[0] in {"rsp", "esp"}:
+            return None
+        if mnemonic == "mov" and len(exprs) == 2 and lvalues[0] in {"rbp", "ebp"} and exprs[1] in {"rsp", "esp"}:
+            return None
+        if mnemonic == "mov" and self._is_stack_spill_move(insn):
+            return None
 
         if mnemonic == "mov" and len(exprs) == 2:
-            return f"{raw_exprs[0]} = {exprs[1]}"
+            return f"{lvalues[0]} = {exprs[1]}"
         if mnemonic == "lea" and len(exprs) == 2:
             string_value = operands[1].get("string_value")
             if isinstance(string_value, str) and string_value:
-                return f'{raw_exprs[0]} = &"{self._escape_string(string_value)}"'
+                return f'{lvalues[0]} = &"{self._escape_string(string_value)}"'
             target_symbol = operands[1].get("target_symbol")
             if isinstance(target_symbol, str) and target_symbol:
-                return f"{raw_exprs[0]} = &{target_symbol}"
+                return f"{lvalues[0]} = &{target_symbol}"
             src = operands[1].get("address") or exprs[1]
-            return f"{raw_exprs[0]} = &{src}"
-        if mnemonic == "push" and len(exprs) == 1:
-            return f"push({exprs[0]})"
-        if mnemonic == "pop" and len(exprs) == 1:
-            return f"{raw_exprs[0]} = pop()"
+            return f"{lvalues[0]} = &{src}"
         if mnemonic == "call" and len(exprs) == 1:
             return f"call {exprs[0]}"
         if mnemonic == "ret":
@@ -378,9 +388,9 @@ class PseudocodeRenderer:
             return f"if less goto {exprs[0]}"
         if mnemonic in {"jle", "jng"} and len(exprs) == 1:
             return f"if less_or_equal goto {exprs[0]}"
-        if mnemonic == "xor" and len(exprs) == 2 and raw_exprs[0] == raw_exprs[1]:
-            return f"{raw_exprs[0]} = 0"
-        if mnemonic in {"add", "sub", "xor", "and", "or", "shl", "shr"} and len(exprs) == 2:
+        if mnemonic == "xor" and len(exprs) == 2 and lvalues[0] == self._render_lvalue(operands[1]):
+            return f"{lvalues[0]} = 0"
+        if mnemonic in {"add", "sub", "xor", "and", "or", "shl", "shr", "ror", "rol"} and len(exprs) == 2:
             operator = {
                 "add": "+",
                 "sub": "-",
@@ -389,16 +399,20 @@ class PseudocodeRenderer:
                 "or": "|",
                 "shl": "<<",
                 "shr": ">>",
+                "ror": "ror",
+                "rol": "rol",
             }[mnemonic]
-            return f"{raw_exprs[0]} = {raw_exprs[0]} {operator} {exprs[1]}"
+            if mnemonic in {"ror", "rol"}:
+                return f"{lvalues[0]} = {operator}({lvalues[0]}, {exprs[1]})"
+            return f"{lvalues[0]} = {lvalues[0]} {operator} {exprs[1]}"
         if mnemonic == "inc" and len(exprs) == 1:
-            return f"{raw_exprs[0]} = {raw_exprs[0]} + 1"
+            return f"{lvalues[0]} = {lvalues[0]} + 1"
         if mnemonic == "dec" and len(exprs) == 1:
-            return f"{raw_exprs[0]} = {raw_exprs[0]} - 1"
+            return f"{lvalues[0]} = {lvalues[0]} - 1"
         if mnemonic == "neg" and len(exprs) == 1:
-            return f"{raw_exprs[0]} = -{raw_exprs[0]}"
+            return f"{lvalues[0]} = -{lvalues[0]}"
         if mnemonic == "not" and len(exprs) == 1:
-            return f"{raw_exprs[0]} = ~{raw_exprs[0]}"
+            return f"{lvalues[0]} = ~{lvalues[0]}"
         joined = ", ".join(exprs)
         return f"{mnemonic}({joined})" if joined else mnemonic
 
@@ -415,6 +429,15 @@ class PseudocodeRenderer:
         string_value = operand.get("string_value")
         if isinstance(string_value, str) and string_value:
             return f'"{self._escape_string(string_value)}"'
+        return str(operand["expr"])
+
+    def _render_lvalue(self, operand: dict[str, Any]) -> str:
+        variable_alias = operand.get("variable_alias")
+        if self.enable_heuristics and isinstance(variable_alias, str) and variable_alias:
+            return variable_alias
+        object_display = operand.get("object_display")
+        if isinstance(object_display, str) and object_display and str(operand.get("kind")) == "mem":
+            return object_display
         return str(operand["expr"])
 
     def _resolve_target_symbol(self, address: int | None) -> str | None:
@@ -476,13 +499,11 @@ class PseudocodeRenderer:
                 if vtable_name:
                     return f"{tag}(vtable={vtable_name})"
             return "this" if prefer_this else tag
-        if prefer_this:
-            vtable_ptr = self._safe_read_ptr(address)
-            vtable_name = self._describe_vtable_pointer(vtable_ptr)
-            if vtable_name:
-                return f"this(vtable={vtable_name})"
-            return "this"
-        return self._describe_vtable_pointer(address)
+        vtable_ptr = self._safe_read_ptr(address)
+        vtable_name = self._describe_vtable_pointer(vtable_ptr)
+        if vtable_name:
+            return f"this(vtable={vtable_name})" if prefer_this else f"object(vtable={vtable_name})"
+        return None
 
     def _describe_object_slot(
         self,
@@ -667,7 +688,7 @@ class PseudocodeRenderer:
         if reg_name in self.register_aliases:
             return self.register_aliases[reg_name]
         alias = None
-        if reg_name in ("ecx", "rcx") and object_display:
+        if reg_name in ("ecx", "rcx") and self._is_this_object_display(object_display):
             alias = "thisObj"
         elif string_value:
             lower_string = string_value.lower()
@@ -710,7 +731,7 @@ class PseudocodeRenderer:
                 alias = f"arg_{max(1, disp // max(self.emu.get_ptr_size(), 1))}"
         elif base_reg_name in ("rsp", "esp"):
             alias = self._allocate_local_alias(string_value)
-        elif base_reg_name in ("rcx", "ecx") and object_display:
+        elif base_reg_name in ("rcx", "ecx") and self._is_this_object_display(object_display):
             alias = f"thisObj.member_{abs(disp):x}"
         else:
             tag = self._safe_address_tag(address)
@@ -730,11 +751,11 @@ class PseudocodeRenderer:
                 return "localPath"
             if ".exe" in lower_string or ".dll" in lower_string:
                 return "localModulePath"
-        return f"var_{self.local_index}"
+        return f"local_var_{self.local_index}"
 
     def _allocate_global_alias(self) -> str:
         self.global_index += 1
-        return f"g_var_{self.global_index}"
+        return f"global_var_{self.global_index}"
 
     def _render_compare_condition(self, mnemonic: str, compare_info: dict[str, str]) -> str:
         left = compare_info.get("left", "?")
@@ -773,7 +794,7 @@ class PseudocodeRenderer:
         if not self.enable_heuristics:
             return target_symbol
         if "." in target_symbol:
-            return target_symbol
+            return self._normalize_import_name(target_symbol)
         if target_symbol.startswith("sub_") or target_symbol.startswith("loc_"):
             self.function_index += 1
             return f"function_{self.function_index}"
@@ -871,6 +892,35 @@ class PseudocodeRenderer:
                 index += 1
         return folded
 
+    def _recover_while_loops(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        folded: list[dict[str, Any]] = []
+        index = 0
+        max_window = 10
+        while index < len(records):
+            matched = False
+            for window in range(max_window, 2, -1):
+                if index + window * 2 > len(records):
+                    continue
+                left = records[index : index + window]
+                right = records[index + window : index + window * 2]
+                if not self._same_record_shape(left, right):
+                    continue
+                condition = self._extract_loop_condition(left)
+                if not condition:
+                    continue
+                loop_record = self._fold_repeated_block(left + right, "loop")
+                loop_record["pseudocode"] = f"while ({condition})"
+                loop_record["assembly"] = f"while_fold x{window * 2}"
+                loop_record["target_symbol"] = "while"
+                folded.append(loop_record)
+                index += window * 2
+                matched = True
+                break
+            if not matched:
+                folded.append(records[index])
+                index += 1
+        return self._recover_backward_jump_loops(folded)
+
     def _loop_token(self, record: dict[str, Any]) -> str | None:
         assembly = str(record.get("assembly") or "").lower()
         pseudocode = str(record.get("pseudocode") or "")
@@ -879,23 +929,36 @@ class PseudocodeRenderer:
                 return "store_mem"
             if "[" in assembly.split(",", 1)[1]:
                 return "load_mem"
+        if assembly.startswith("movzx "):
+            if "[" in assembly:
+                return "load_mem"
         if assembly.startswith("cmp "):
-            return "compare_mem"
+            if "[" in assembly:
+                return "compare_mem"
+            return "compare_reg"
         if assembly.startswith("inc ") or pseudocode.endswith("+ 1"):
             return "inc"
         if assembly.startswith("dec ") or pseudocode.endswith("- 1"):
             return "dec"
         if assembly.startswith("add ") and ", 1" in assembly:
             return "inc"
+        if assembly.startswith("add ") and ", -1" in assembly:
+            return "dec"
         if assembly.startswith("sub ") and ", 1" in assembly:
             return "dec"
+        if assembly.startswith("sub ") and ", -1" in assembly:
+            return "inc"
         return None
 
     def _classify_loop_token_family(self, tokens: list[str | None]) -> str | None:
         token_set = {token for token in tokens if token}
-        if {"load_mem", "store_mem"}.issubset(token_set) and token_set.issubset({"load_mem", "store_mem", "inc", "dec"}):
+        if {"load_mem", "store_mem"}.issubset(token_set) and token_set.issubset(
+            {"load_mem", "store_mem", "inc", "dec", "compare_reg"}
+        ):
             return "memcpy"
-        if "compare_mem" in token_set and token_set.issubset({"load_mem", "compare_mem", "inc", "dec"}):
+        if "compare_mem" in token_set and token_set.issubset(
+            {"load_mem", "compare_mem", "compare_reg", "inc", "dec"}
+        ):
             return "strcmp"
         return None
 
@@ -918,6 +981,9 @@ class PseudocodeRenderer:
     def _infer_function_alias_from_context(self, records: list[dict[str, Any]], index: int) -> str | None:
         window = records[index + 1 : index + 9]
         imported_calls: list[str] = []
+        string_values: list[str] = []
+        variable_aliases: list[str] = []
+        return_values: list[str] = []
         for record in window:
             pseudocode = str(record.get("pseudocode") or "")
             if pseudocode == "return":
@@ -925,15 +991,264 @@ class PseudocodeRenderer:
             target_symbol = record.get("target_symbol")
             if isinstance(target_symbol, str) and "." in target_symbol:
                 imported_calls.append(target_symbol.rsplit(".", 1)[-1])
+            string_value = record.get("string_value")
+            if isinstance(string_value, str) and string_value:
+                string_values.append(string_value)
+            for value in (record.get("variable_aliases") or {}).values():
+                if isinstance(value, str) and value:
+                    variable_aliases.append(value)
+            if pseudocode.startswith("retVal = "):
+                return_values.append(pseudocode.split("=", 1)[1].strip())
+        contextual_alias = self._score_function_alias(imported_calls, string_values, variable_aliases, return_values)
+        if contextual_alias:
+            return contextual_alias
         if not imported_calls:
             return None
-        first_call = imported_calls[0]
+        first_call = self._normalize_import_name(imported_calls[0])
         if len(imported_calls) == 1:
             return first_call
         suffix = "Wrapper"
         if any(name.lower().startswith("parse") for name in imported_calls):
             suffix = "Handler"
         return f"{first_call}{suffix}"
+
+    def _score_function_alias(
+        self,
+        imported_calls: list[str],
+        string_values: list[str],
+        variable_aliases: list[str],
+        return_values: list[str],
+    ) -> str | None:
+        joined_aliases = " ".join(variable_aliases).lower()
+        lowered_strings = [value.lower() for value in string_values]
+        scores: dict[str, int] = {}
+
+        def add_score(name: str, score: int) -> None:
+            scores[name] = scores.get(name, 0) + score
+
+        if "filepath" in joined_aliases or "localpath" in joined_aliases or any(
+            ("\\" in value or "/" in value) and (".exe" in value or ".dll" in value or "." in value)
+            for value in lowered_strings
+        ):
+            add_score("OpenFile", 4)
+        if "commandline" in joined_aliases or any(
+            value.startswith("-") or " /" in value or "--" in value or "cmd" in value for value in lowered_strings
+        ):
+            add_score("ParseCommandLine", 4)
+        normalized_imports = [self._normalize_import_name(name) for name in imported_calls]
+        for name in normalized_imports:
+            add_score(name, 2)
+            lower_name = name.lower()
+            if "virtualprotect" in lower_name:
+                add_score("ProtectMemory", 3)
+            if "loadlibrary" in lower_name or "getprocaddress" in lower_name:
+                add_score("ResolveImports", 3)
+            if "flsgetvalue" in lower_name or "flssetvalue" in lower_name or "flsalloc" in lower_name:
+                add_score("TlsAccess", 3)
+            if "getprocessheap" in lower_name or "heapalloc" in lower_name:
+                add_score("HeapAccess", 3)
+        for value in return_values:
+            lower_value = value.lower()
+            if "heap" in lower_value:
+                add_score("HeapAccess", 2)
+            if "filepath" in lower_value or "localpath" in lower_value:
+                add_score("OpenFile", 2)
+        if not scores:
+            return None
+        return sorted(scores.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+    def _same_record_shape(self, left: list[dict[str, Any]], right: list[dict[str, Any]]) -> bool:
+        if len(left) != len(right):
+            return False
+        for left_record, right_record in zip(left, right):
+            left_code = str(left_record.get("pseudocode") or "")
+            right_code = str(right_record.get("pseudocode") or "")
+            if left_code != right_code:
+                return False
+        return True
+
+    def _extract_loop_condition(self, records: list[dict[str, Any]]) -> str | None:
+        for record in reversed(records):
+            pseudocode = str(record.get("pseudocode") or "")
+            if pseudocode.startswith("if (") and pseudocode.endswith(")"):
+                return pseudocode[4:-1]
+        return None
+
+    def _prune_noise_records(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        pruned: list[dict[str, Any]] = []
+        for record in records:
+            if self._is_stack_noise_record(record):
+                continue
+            pruned.append(record)
+        return pruned
+
+    def _is_stack_noise_record(self, record: dict[str, Any]) -> bool:
+        assembly = str(record.get("assembly") or "").lower()
+        if not assembly:
+            return False
+        if assembly.startswith("push ") or assembly.startswith("pop "):
+            return True
+        if assembly.startswith("sub rsp,") or assembly.startswith("sub esp,"):
+            return True
+        if assembly.startswith("add rsp,") or assembly.startswith("add esp,"):
+            return True
+        if assembly in {"mov rbp, rsp", "mov ebp, esp"}:
+            return True
+        return False
+
+    def _is_stack_spill_move(self, insn) -> bool:
+        if len(insn.operands) != 2:
+            return False
+        callee_saved = {
+            "rbx",
+            "rbp",
+            "rsi",
+            "rdi",
+            "r12",
+            "r13",
+            "r14",
+            "r15",
+            "ebx",
+            "ebp",
+            "esi",
+            "edi",
+        }
+
+        def is_stack_slot(operand) -> bool:
+            if operand.type != x86_const.X86_OP_MEM:
+                return False
+            base_reg_name = insn.reg_name(operand.mem.base) if operand.mem.base else ""
+            return base_reg_name in {"rsp", "esp"} and not operand.mem.index and operand.mem.disp >= 0
+
+        def is_callee_saved_reg(operand) -> bool:
+            if operand.type != x86_const.X86_OP_REG:
+                return False
+            return insn.reg_name(operand.reg) in callee_saved
+
+        left = insn.operands[0]
+        right = insn.operands[1]
+        return (is_stack_slot(left) and is_callee_saved_reg(right)) or (
+            is_callee_saved_reg(left) and is_stack_slot(right)
+        )
+
+    def _is_this_object_display(self, object_display: str | None) -> bool:
+        if not isinstance(object_display, str) or not object_display:
+            return False
+        return object_display == "this" or object_display.startswith("this(") or object_display.startswith("this.")
+
+    def _recover_backward_jump_loops(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        folded: list[dict[str, Any]] = []
+        index = 0
+        while index < len(records):
+            match = self._match_backward_jump_loop(records, index)
+            if not match:
+                folded.append(records[index])
+                index += 1
+                continue
+            size, loop_record = match
+            folded.append(loop_record)
+            index += size
+        return folded
+
+    def _match_backward_jump_loop(self, records: list[dict[str, Any]], index: int) -> tuple[int, dict[str, Any]] | None:
+        for size in (3, 2):
+            end = index + size - 1
+            if end >= len(records):
+                continue
+            group = records[index : end + 1]
+            condition_record = group[-1]
+            if not self._is_backward_jump_record(condition_record):
+                continue
+            if size == 3 and not self._is_loop_step_record(group[0], condition_record):
+                continue
+            if size == 2 and not self._is_compare_record(group[0]):
+                continue
+            condition = self._extract_loop_condition(group)
+            if not condition:
+                continue
+            loop_record = self._fold_repeated_block(group, "loop")
+            loop_record["pseudocode"] = f"while ({condition})"
+            loop_record["assembly"] = f"while_backedge x{size}"
+            loop_record["target_symbol"] = "while"
+            return size, loop_record
+        return None
+
+    def _is_backward_jump_record(self, record: dict[str, Any]) -> bool:
+        pseudocode = str(record.get("pseudocode") or "")
+        assembly = str(record.get("assembly") or "")
+        current_address = self._parse_hex_address(record.get("address"))
+        target_address = self._extract_branch_target(assembly)
+        if not (pseudocode.startswith("if (") and pseudocode.endswith(")")):
+            return False
+        if current_address is None or target_address is None:
+            return False
+        return target_address < current_address
+
+    def _is_compare_record(self, record: dict[str, Any]) -> bool:
+        pseudocode = str(record.get("pseudocode") or "")
+        return pseudocode.startswith("compare(") or pseudocode.startswith("test(")
+
+    def _is_loop_step_record(self, record: dict[str, Any], condition_record: dict[str, Any]) -> bool:
+        pseudocode = str(record.get("pseudocode") or "")
+        if "=" not in pseudocode:
+            return False
+        condition = self._extract_loop_condition([condition_record]) or ""
+        step_tokens = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", pseudocode))
+        condition_tokens = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", condition))
+        return bool(step_tokens and condition_tokens and step_tokens.intersection(condition_tokens))
+
+    def _parse_hex_address(self, value: Any) -> int | None:
+        if isinstance(value, str) and value.startswith("0x"):
+            try:
+                return int(value, 16)
+            except ValueError:
+                return None
+        return None
+
+    def _extract_branch_target(self, assembly: str) -> int | None:
+        parts = assembly.strip().split()
+        if len(parts) != 2 or not parts[0].lower().startswith("j"):
+            return None
+        target = parts[1].strip()
+        if not target.startswith("0x"):
+            return None
+        try:
+            return int(target, 16)
+        except ValueError:
+            return None
+
+    def _normalize_import_name(self, target_symbol: str) -> str:
+        name = target_symbol.rsplit(".", 1)[-1]
+        if name.endswith("Ex"):
+            return name[:-2]
+        if len(name) > 1 and name[-1] in {"A", "W"} and name[-2].islower():
+            return name[:-1]
+        return name
+
+    def _get_instruction_annotations(self, insn, operands: list[dict[str, Any]]) -> list[str]:
+        annotations: list[str] = []
+        mnemonic = insn.mnemonic.lower()
+        if mnemonic in {"ror", "rol"}:
+            annotations.append("possible hash or decrypt bit-mixing logic")
+        if mnemonic == "xor" and len(operands) == 2 and operands[0].get("expr") != operands[1].get("expr"):
+            annotations.append("possible xor-based transform")
+        for operand in operands:
+            value = operand.get("value")
+            if not isinstance(value, str):
+                continue
+            magic_comment = self._describe_magic_value(value)
+            if magic_comment:
+                annotations.append(magic_comment)
+        return annotations
+
+    def _describe_magic_value(self, value: str) -> str | None:
+        magic_values = {
+            "0x5a4d": "magic value MZ header",
+            "0x4550": "magic value PE header",
+            "0x9e3779b9": "magic value TEA-style constant",
+            "0xdeadbeef": "magic debug sentinel",
+        }
+        return magic_values.get(value.lower())
 
     def _format_int(self, value: int | None) -> str:
         if value is None:
