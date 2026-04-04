@@ -114,6 +114,7 @@ class PseudocodeRenderer:
         if not self.enable_heuristics:
             return records
         records = self._recover_function_aliases(records)
+        records = self._recover_global_aliases(records)
         compacted: list[dict[str, Any]] = []
         index = 0
         while index < len(records):
@@ -133,7 +134,11 @@ class PseudocodeRenderer:
             compacted.append(self._fold_repeated_block(records[index:end], family))
             index = end
         compacted = self._fold_handwritten_loop_blocks(compacted)
-        return self._recover_while_loops(compacted)
+        compacted = self._recover_while_loops(compacted)
+        compacted = self._fold_repeated_summary_records(compacted)
+        compacted = self._fold_repeated_normalized_windows(compacted)
+        compacted = self._fold_repeated_while_chains(compacted)
+        return self._fold_repeated_scalar_records(compacted)
 
     def _resolve_operand(self, insn, operand) -> dict[str, Any]:
         if operand.type == x86_const.X86_OP_REG:
@@ -736,9 +741,9 @@ class PseudocodeRenderer:
         else:
             tag = self._safe_address_tag(address)
             if tag:
-                alias = tag.replace(" ", "_")
+                alias = self._normalize_tag_alias(tag, address)
             else:
-                alias = self._allocate_global_alias()
+                alias = self._allocate_global_alias(address)
         if alias:
             self.memory_aliases[address_key] = alias
         return alias
@@ -753,9 +758,41 @@ class PseudocodeRenderer:
                 return "localModulePath"
         return f"local_var_{self.local_index}"
 
-    def _allocate_global_alias(self) -> str:
+    def _allocate_global_alias(self, address: int | None = None) -> str:
+        if isinstance(address, int) and address > 0:
+            return f"global_{address:x}"
         self.global_index += 1
         return f"global_var_{self.global_index}"
+
+    def _normalize_tag_alias(self, tag: str, address: int) -> str:
+        normalized_tag = tag.strip()
+        if normalized_tag.lower().startswith("emu.module."):
+            return self._build_module_alias(normalized_tag, address)
+        sanitized = self._sanitize_alias_text(normalized_tag, max_parts=8, max_length=40)
+        if sanitized:
+            return sanitized
+        return self._allocate_global_alias(address)
+
+    def _build_module_alias(self, tag: str, address: int) -> str:
+        module_name = re.sub(r"^emu\.module\.", "", tag, flags=re.IGNORECASE)
+        module_name = re.sub(r"\.0x[0-9a-f]+$", "", module_name, flags=re.IGNORECASE)
+        alias_root = self._sanitize_alias_text(module_name, max_parts=6, max_length=24) or "module"
+        module_base = self._safe_module_base(address)
+        offset = address - module_base if module_base <= address else address
+        if offset <= 0:
+            return f"g_{alias_root}"
+        return f"g_{alias_root}_{offset:x}"
+
+    def _sanitize_alias_text(self, value: str, max_parts: int = 8, max_length: int = 40) -> str:
+        parts = re.findall(r"[A-Za-z0-9]+", value)
+        if not parts:
+            return ""
+        sanitized = "_".join(parts[:max_parts]).strip("_")
+        if len(sanitized) > max_length:
+            sanitized = sanitized[:max_length].rstrip("_")
+        if sanitized and sanitized[0].isdigit():
+            sanitized = f"v_{sanitized}"
+        return sanitized
 
     def _render_compare_condition(self, mnemonic: str, compare_info: dict[str, str]) -> str:
         left = compare_info.get("left", "?")
@@ -834,12 +871,314 @@ class PseudocodeRenderer:
             record["target_symbol"] = inferred_alias
         return recovered
 
+    def _recover_global_aliases(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        alias_scores: dict[str, dict[str, int]] = {}
+        recovered: list[dict[str, Any]] = [dict(record) for record in records]
+        for index, record in enumerate(recovered):
+            pseudocode = str(record.get("pseudocode") or "")
+            if not pseudocode:
+                continue
+            for global_alias, candidate, score in self._extract_global_alias_candidates(recovered, index, pseudocode):
+                if not candidate:
+                    continue
+                alias_scores.setdefault(global_alias, {})
+                alias_scores[global_alias][candidate] = alias_scores[global_alias].get(candidate, 0) + score
+        rename_map: dict[str, str] = {}
+        for global_alias, candidates in alias_scores.items():
+            best = sorted(candidates.items(), key=lambda item: (-item[1], item[0]))[0][0]
+            usage_name = self._to_global_usage_candidate(best)
+            renamed = f"g_{self._sanitize_alias_text(usage_name, max_parts=4, max_length=28)}"
+            if renamed and renamed != global_alias:
+                rename_map[global_alias] = renamed
+        for global_alias in self._extract_unknown_global_aliases(recovered):
+            classified_alias = self._classify_unknown_global_alias(recovered, global_alias)
+            if not classified_alias or classified_alias == global_alias:
+                continue
+            if global_alias in rename_map and not self._should_override_global_alias(rename_map[global_alias], classified_alias):
+                continue
+            if classified_alias and classified_alias != global_alias:
+                rename_map[global_alias] = classified_alias
+        if not rename_map:
+            return recovered
+        return [self._apply_alias_renames(record, rename_map) for record in recovered]
+
+    def _extract_global_alias_candidates(
+        self,
+        records: list[dict[str, Any]],
+        index: int,
+        pseudocode: str,
+    ) -> list[tuple[str, str, int]]:
+        patterns = [
+            (r"xchg\((g_[A-Za-z0-9_]+), ([A-Za-z_][A-Za-z0-9_]*)\)", 6),
+            (r"xchg\(([A-Za-z_][A-Za-z0-9_]*), (g_[A-Za-z0-9_]+)\)", 6),
+            (r"(g_[A-Za-z0-9_]+)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)", 4),
+            (r"([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(g_[A-Za-z0-9_]+)", 3),
+        ]
+        candidates: list[tuple[str, str, int]] = []
+        for pattern, score in patterns:
+            for left, right in re.findall(pattern, pseudocode):
+                if left.startswith("g_"):
+                    global_alias = left
+                    candidate = right
+                else:
+                    global_alias = right
+                    candidate = left
+                if self._is_low_value_alias_name(candidate):
+                    continue
+                candidates.append((global_alias, candidate, score))
+        explicit_api_assign = self._extract_explicit_api_assignment_candidate(pseudocode)
+        if explicit_api_assign:
+            candidates.append(explicit_api_assign)
+        api_assign = re.match(r"(g_[A-Za-z0-9_]+)\s*=\s*api\.[^.]+\.[^.]+\.([A-Za-z_][A-Za-z0-9_]*)", pseudocode)
+        if api_assign:
+            global_alias, api_name = api_assign.groups()
+            normalized_name = self._to_global_usage_candidate(api_name)
+            if not self._is_low_value_alias_name(normalized_name):
+                candidates.append((global_alias, normalized_name, 8))
+        for global_alias in self._extract_retval_global_aliases(pseudocode):
+            contextual_name = self._get_recent_call_candidate(records, index)
+            if contextual_name and not self._is_low_value_alias_name(contextual_name):
+                candidates.append((global_alias, contextual_name, 5))
+        return candidates
+
+    def _extract_explicit_api_assignment_candidate(self, pseudocode: str) -> tuple[str, str, int] | None:
+        mappings = {
+            ".GetCommandLineA.": "CommandLineA",
+            ".GetCommandLineW.": "CommandLineW",
+            ".LoadLibraryExA.": "LoadedModule",
+            ".LoadLibraryExW.": "LoadedModule",
+            ".LoadLibraryEx.": "LoadedModule",
+            ".LoadLibraryA.": "LoadedModule",
+            ".LoadLibraryW.": "LoadedModule",
+            ".FlsAlloc.": "FlsIndex",
+            ".FlsGetValue2.": "FlsGetValue",
+        }
+        alias_match = re.match(r"(g_[A-Za-z0-9_]+)\s*=\s*api\.", pseudocode)
+        if not alias_match:
+            return None
+        global_alias = alias_match.group(1)
+        for marker, candidate in mappings.items():
+            if marker in pseudocode:
+                return global_alias, candidate, 12
+        return None
+
+    def _extract_retval_global_aliases(self, pseudocode: str) -> list[str]:
+        patterns = [
+            r"(g_[A-Za-z0-9_]+)\s*=\s*retVal",
+            r"xchg\((g_[A-Za-z0-9_]+), retVal\)",
+            r"xchg\(retVal, (g_[A-Za-z0-9_]+)\)",
+        ]
+        aliases: list[str] = []
+        for pattern in patterns:
+            aliases.extend(re.findall(pattern, pseudocode))
+        return aliases
+
+    def _get_recent_call_candidate(self, records: list[dict[str, Any]], index: int) -> str | None:
+        window_start = max(0, index - 4)
+        for cursor in range(index - 1, window_start - 1, -1):
+            pseudocode = str(records[cursor].get("pseudocode") or "")
+            if not pseudocode.startswith("call "):
+                continue
+            target = pseudocode[5:].strip()
+            if not target:
+                continue
+            target = target.rsplit(".", 1)[-1]
+            if target.startswith("function_") or target.startswith("sub_") or target.startswith("0x"):
+                continue
+            return self._to_global_usage_candidate(target)
+        return None
+
+    def _to_global_usage_candidate(self, value: str) -> str:
+        normalized = self._normalize_import_name(value)
+        usage_map = {
+            "CommandLineA": "CommandLineBufferA",
+            "CommandLineW": "CommandLineBufferW",
+            "CommandLine": "CommandLineBuffer",
+            "LoadedModule": "LoadedModuleHandle",
+            "FlsIndex": "FlsSlotIndex",
+            "FlsGetValue": "FlsGetValueFn",
+            "GetCommandLineA": "CommandLineBufferA",
+            "GetCommandLineW": "CommandLineBufferW",
+            "GetCommandLine": "CommandLineBuffer",
+            "LoadLibraryEx": "LoadedModuleHandle",
+            "LoadLibrary": "LoadedModuleHandle",
+            "LoadLibraryA": "LoadedModuleHandle",
+            "LoadLibraryW": "LoadedModuleHandle",
+            "FlsAlloc": "FlsSlotIndex",
+            "FlsGetValue2": "FlsGetValueFn",
+        }
+        if value in usage_map:
+            return usage_map[value]
+        if normalized in usage_map:
+            return usage_map[normalized]
+        return normalized
+
+    def _is_low_value_alias_name(self, value: str) -> bool:
+        lowered = value.lower()
+        if lowered.startswith(("g_", "global_", "arg_", "local_var_", "function_")):
+            return True
+        if lowered in {"retval", "localpath", "filepath", "modulepath", "thisobj", "this", "void", "api"}:
+            return True
+        return False
+
+    def _should_override_global_alias(self, current_alias: str, classified_alias: str) -> bool:
+        if current_alias == "g_TlsAccess" and classified_alias.startswith(("g_table_", "g_tls_slot_", "g_slot_")):
+            return True
+        return False
+
+    def _extract_unknown_global_aliases(self, records: list[dict[str, Any]]) -> list[str]:
+        aliases: set[str] = set()
+        pattern = r"\bg_vhdx_backup_[0-9a-f]+\b"
+        for record in records:
+            texts = [
+                str(record.get("pseudocode") or ""),
+                str(record.get("assembly") or ""),
+                str(record.get("target_symbol") or ""),
+            ]
+            texts.extend(str(item) for item in record.get("context", []) if isinstance(item, str))
+            for text in texts:
+                aliases.update(re.findall(pattern, text))
+        return sorted(aliases)
+
+    def _classify_unknown_global_alias(self, records: list[dict[str, Any]], global_alias: str) -> str | None:
+        suffix_match = re.search(r"_([0-9a-f]+)$", global_alias)
+        suffix = suffix_match.group(1) if suffix_match else "var"
+        usage_texts: list[str] = []
+        wide_usage_texts: list[str] = []
+        for index, record in enumerate(records):
+            pseudocode = str(record.get("pseudocode") or "")
+            assembly = str(record.get("assembly") or "")
+            if global_alias in pseudocode or global_alias in assembly:
+                start = max(0, index - 2)
+                end = min(len(records), index + 3)
+                for neighbor in records[start:end]:
+                    usage_texts.append(str(neighbor.get("pseudocode") or ""))
+                usage_texts.append(assembly)
+                wide_start = max(0, index - 24)
+                wide_end = min(len(records), index + 31)
+                for neighbor in records[wide_start:wide_end]:
+                    wide_usage_texts.append(str(neighbor.get("pseudocode") or ""))
+        joined = "\n".join(usage_texts)
+        wide_joined = "\n".join(wide_usage_texts) if wide_usage_texts else joined
+        small_values = {
+            int(match, 16)
+            for match in re.findall(rf"{re.escape(global_alias)}\s*=\s*0x([0-9a-f]+)", joined)
+            if len(match) <= 4
+        }
+        if re.search(rf"(localPath|filePath|modulePath)\s*=\s*{re.escape(global_alias)}", joined):
+            return f"g_path_{suffix}"
+        if re.search(rf"{re.escape(global_alias)}\s*=\s*(localPath|filePath|modulePath)", joined):
+            return f"g_path_ptr_{suffix}"
+        if "LoadLibrary" in joined and any(
+            re.search(pattern, joined)
+            for pattern in (
+                rf"{re.escape(global_alias)}\s*=\s*retVal",
+                rf"xchg\({re.escape(global_alias)}, retVal\)",
+                rf"xchg\(retVal, {re.escape(global_alias)}\)",
+            )
+        ):
+            return f"g_module_handle_{suffix}"
+        if "GetProcAddress" in wide_joined and any(
+            re.search(pattern, wide_joined)
+            for pattern in (
+                rf"{re.escape(global_alias)}\s*=\s*retVal",
+                rf"xchg\({re.escape(global_alias)}, retVal\)",
+            )
+        ):
+            return f"g_proc_cache_{suffix}"
+        if "GetProcessHeap" in joined and any(
+            re.search(pattern, joined)
+            for pattern in (
+                rf"{re.escape(global_alias)}\s*=\s*retVal",
+                rf"retVal\s*=\s*{re.escape(global_alias)}",
+            )
+        ):
+            return f"g_heap_handle_{suffix}"
+        if any(token in joined for token in ("lock inc(", "xadd(")) or re.search(
+            rf"{re.escape(global_alias)}\s*=\s*{re.escape(global_alias)}\s*[\+\-]\s*1\b",
+            joined,
+        ):
+            return f"g_counter_{suffix}"
+        if any(token in joined for token in ("movups(", "movdqa(", "movdqu(")):
+            return f"g_vector_{suffix}"
+        if re.search(rf"(compare|test)\({re.escape(global_alias)}, 0x0\)", joined) and small_values.issubset({0, 1}):
+            return f"g_flag_{suffix}"
+        if len(small_values) >= 2 or any(value > 1 for value in small_values):
+            return f"g_state_{suffix}"
+        if re.search(rf"arg_\d+\s*=\s*{re.escape(global_alias)}", wide_joined):
+            slot_compares = re.findall(r"compare\(g_slot_[A-Za-z0-9_]+,\s*arg_\d+\)", wide_joined)
+            static_arg_sources = re.findall(r"arg_\d+\s*=\s*&0x140[0-9a-f]+", wide_joined)
+            if len(slot_compares) >= 2:
+                return f"g_slot_table_{suffix}"
+            if len(static_arg_sources) >= 2:
+                return f"g_descriptor_table_{suffix}"
+        if re.search(rf"{re.escape(global_alias)}\s*=\s*arg_\d+", wide_joined):
+            static_arg_sources = re.findall(r"arg_\d+\s*=\s*&0x140[0-9a-f]+", wide_joined)
+            if len(static_arg_sources) >= 2:
+                return f"g_descriptor_table_{suffix}"
+        if "TlsAccess" in wide_joined and (
+            re.search(rf"arg_1\s*=\s*{re.escape(global_alias)}", wide_joined)
+            or re.search(rf"{re.escape(global_alias)}\s*=\s*retVal", wide_joined)
+            or re.search(rf"compare\({re.escape(global_alias)}, -0x1\)", wide_joined)
+        ):
+            return f"g_tls_slot_{suffix}"
+        if re.search(rf"compare\([^,]+,\s*{re.escape(global_alias)}\)|compare\({re.escape(global_alias)},", joined):
+            return f"g_slot_{suffix}"
+        if re.search(rf"xchg\({re.escape(global_alias)}, retVal\)|xchg\(retVal, {re.escape(global_alias)}\)", joined):
+            return f"g_cache_{suffix}"
+        if re.search(rf"{re.escape(global_alias)}\s*=\s*arg_\d+|arg_\d+\s*=\s*{re.escape(global_alias)}", joined):
+            return f"g_context_{suffix}"
+        if any(
+            re.search(pattern, joined)
+            for pattern in (
+                rf"{re.escape(global_alias)}\s*=\s*retVal",
+                rf"retVal\s*=\s*{re.escape(global_alias)}",
+                rf"{re.escape(global_alias)}\s*=\s*arg_\d+",
+                rf"xchg\({re.escape(global_alias)},",
+            )
+        ):
+            return f"g_ptr_{suffix}"
+        return None
+
+    def _apply_alias_renames(self, record: dict[str, Any], rename_map: dict[str, str]) -> dict[str, Any]:
+        updated = dict(record)
+        pseudocode = str(updated.get("pseudocode") or "")
+        assembly = str(updated.get("assembly") or "")
+        target_symbol = str(updated.get("target_symbol") or "")
+        if pseudocode:
+            updated["pseudocode"] = self._rename_alias_text(pseudocode, rename_map)
+        if target_symbol:
+            updated["target_symbol"] = self._rename_alias_text(target_symbol, rename_map)
+        updated["context"] = [
+            self._rename_alias_text(str(item), rename_map) if isinstance(item, str) else item
+            for item in updated.get("context", [])
+        ]
+        register_values = {}
+        for key, value in (updated.get("register_values") or {}).items():
+            register_values[str(key)] = self._rename_alias_text(str(value), rename_map)
+        updated["register_values"] = register_values
+        variable_aliases = {}
+        for key, value in (updated.get("variable_aliases") or {}).items():
+            variable_aliases[str(key)] = self._rename_alias_text(str(value), rename_map)
+        updated["variable_aliases"] = variable_aliases
+        if assembly:
+            updated["assembly"] = assembly
+        return updated
+
+    def _rename_alias_text(self, text: str, rename_map: dict[str, str]) -> str:
+        renamed = text
+        for old, new in rename_map.items():
+            renamed = re.sub(rf"\b{re.escape(old)}\b", new, renamed)
+        return renamed
+
     def _classify_repeated_block(self, record: dict[str, Any]) -> str | None:
         assembly = str(record.get("assembly") or "").lower()
         if assembly.startswith("rep movs") or assembly.startswith("movs"):
             return "memcpy"
         if assembly.startswith("rep cmps") or assembly.startswith("cmps"):
             return "strcmp"
+        if assembly.startswith("rep stos") or assembly.startswith("stos"):
+            return "memset"
         return None
 
     def _fold_repeated_block(self, records: list[dict[str, Any]], family: str) -> dict[str, Any]:
@@ -1149,6 +1488,319 @@ class PseudocodeRenderer:
             folded.append(loop_record)
             index += size
         return folded
+
+    def _fold_repeated_summary_records(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        folded: list[dict[str, Any]] = []
+        index = 0
+        while index < len(records):
+            family = self._summary_record_family(records[index])
+            if not family:
+                folded.append(records[index])
+                index += 1
+                continue
+            end = index + 1
+            while end < len(records) and self._same_summary_record(records[index], records[end], family):
+                end += 1
+            if end - index == 1:
+                folded.append(records[index])
+                index = end
+                continue
+            summary_record = self._merge_summary_records(records[index:end], family)
+            folded.append(summary_record)
+            index = end
+        return folded
+
+    def _summary_record_family(self, record: dict[str, Any]) -> str | None:
+        target_symbol = str(record.get("target_symbol") or "")
+        assembly = str(record.get("assembly") or "").lower()
+        if target_symbol in {"while", "memcpy", "strcmp", "memset"}:
+            return target_symbol
+        if assembly.startswith("while_"):
+            return "while"
+        if assembly.startswith("memcpy_"):
+            return "memcpy"
+        if assembly.startswith("strcmp_"):
+            return "strcmp"
+        if assembly.startswith("memset_"):
+            return "memset"
+        return None
+
+    def _same_summary_record(self, left: dict[str, Any], right: dict[str, Any], family: str) -> bool:
+        if self._summary_record_family(right) != family:
+            return False
+        return str(left.get("pseudocode") or "") == str(right.get("pseudocode") or "")
+
+    def _merge_summary_records(self, records: list[dict[str, Any]], family: str) -> dict[str, Any]:
+        merged = dict(records[0])
+        count = len(records)
+        merged["assembly"] = f"{family}_repeat x{count}"
+        merged_context: list[str] = []
+        merged_register_values: dict[str, str] = {}
+        merged_variable_aliases: dict[str, str] = {}
+        for record in records:
+            for item in record.get("context", []):
+                if isinstance(item, str):
+                    merged_context.append(item)
+            for key, value in (record.get("register_values") or {}).items():
+                merged_register_values[str(key)] = str(value)
+            for key, value in (record.get("variable_aliases") or {}).items():
+                merged_variable_aliases[str(key)] = str(value)
+        merged_context.append(f"repeated x{count}")
+        merged["context"] = self._unique(merged_context)
+        merged["register_values"] = merged_register_values
+        merged["variable_aliases"] = merged_variable_aliases
+        merged["target_symbol"] = family
+        merged["filtered"] = False
+        return merged
+
+    def _fold_repeated_normalized_windows(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        folded: list[dict[str, Any]] = []
+        index = 0
+        max_window = 18
+        min_window = 8
+        min_repeats = 3
+        while index < len(records):
+            match = self._match_repeated_normalized_window(records, index, max_window, min_window, min_repeats)
+            if not match:
+                folded.append(records[index])
+                index += 1
+                continue
+            window, repeats = match
+            folded.extend(records[index : index + window])
+            folded.append(self._build_repeated_window_record(records[index : index + window], repeats - 1, window))
+            index += window * repeats
+        return folded
+
+    def _match_repeated_normalized_window(
+        self,
+        records: list[dict[str, Any]],
+        index: int,
+        max_window: int,
+        min_window: int,
+        min_repeats: int,
+    ) -> tuple[int, int] | None:
+        for window in range(max_window, min_window - 1, -1):
+            if index + window * min_repeats > len(records):
+                continue
+            base = self._normalized_window_signature(records[index : index + window])
+            if not base:
+                continue
+            repeats = 1
+            cursor = index + window
+            while cursor + window <= len(records):
+                current = self._normalized_window_signature(records[cursor : cursor + window])
+                if current != base:
+                    break
+                repeats += 1
+                cursor += window
+            if repeats >= min_repeats:
+                return window, repeats
+        return None
+
+    def _normalized_window_signature(self, records: list[dict[str, Any]]) -> tuple[str, ...]:
+        signature = tuple(self._normalize_window_text(str(record.get("pseudocode") or "")) for record in records)
+        if not any("while (" in item or "call " in item for item in signature):
+            return ()
+        return signature
+
+    def _normalize_window_text(self, value: str) -> str:
+        normalized = value
+        normalized = re.sub(r"0x[0-9a-fA-F]+", "0xN", normalized)
+        normalized = re.sub(r"\bg_[A-Za-z0-9_]+\b", "g_ALIAS", normalized)
+        normalized = re.sub(r"\bglobal_[0-9a-fA-F]+\b", "g_ALIAS", normalized)
+        normalized = re.sub(r"\blocal_var_\d+\b", "local_var_N", normalized)
+        normalized = re.sub(r"\barg_\d+\b", "arg_N", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized
+
+    def _build_repeated_window_record(
+        self,
+        records: list[dict[str, Any]],
+        repeated_count: int,
+        window_size: int,
+    ) -> dict[str, Any]:
+        summary = dict(records[0])
+        summary["pseudocode"] = self._describe_repeated_window(records, repeated_count)
+        summary["assembly"] = f"repeat_window size={window_size} x{repeated_count}"
+        summary["target_symbol"] = "repeat_window"
+        summary["filtered"] = False
+        context = [str(item) for item in summary.get("context", []) if isinstance(item, str)]
+        context.append(f"similar_window_size={window_size}")
+        context.append(f"repeated_windows={repeated_count}")
+        summary["context"] = self._unique(context)
+        return summary
+
+    def _describe_repeated_window(self, records: list[dict[str, Any]], repeated_count: int) -> str:
+        while_conditions: list[str] = []
+        call_targets: list[str] = []
+        for record in records:
+            pseudocode = str(record.get("pseudocode") or "")
+            if pseudocode.startswith("while (") and pseudocode.endswith(")"):
+                while_conditions.append(pseudocode)
+            if pseudocode.startswith("call "):
+                call_targets.append(pseudocode[5:].strip())
+        if while_conditions:
+            return f"repeat_window({while_conditions[0]}, x{repeated_count})"
+        if call_targets:
+            return f"repeat_window(call {call_targets[0]}, x{repeated_count})"
+        return f"repeat_window(x{repeated_count})"
+
+    def _fold_repeated_while_chains(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        folded: list[dict[str, Any]] = []
+        index = 0
+        while index < len(records):
+            match = self._match_repeated_while_chain(records, index)
+            if not match:
+                folded.append(records[index])
+                index += 1
+                continue
+            size, merged = match
+            folded.append(merged)
+            index += size
+        return folded
+
+    def _match_repeated_while_chain(self, records: list[dict[str, Any]], index: int) -> tuple[int, dict[str, Any]] | None:
+        if not self._is_while_chain_record(records[index]):
+            return None
+        end = index
+        while_count = 0
+        family_signatures: list[tuple[str, str] | None] = []
+        while end < len(records) and self._is_while_chain_record(records[end]):
+            pseudocode = str(records[end].get("pseudocode") or "")
+            if pseudocode.startswith("while (") and pseudocode.endswith(")"):
+                while_count += 1
+                family_signatures.append(self._while_family_signature(pseudocode))
+            end += 1
+        if while_count < 4 or end - index < 6:
+            return None
+        unique_families = {signature for signature in family_signatures if signature}
+        if len(unique_families) > 2:
+            return None
+        return end - index, self._merge_while_chain_records(records[index:end], while_count)
+
+    def _is_while_chain_record(self, record: dict[str, Any]) -> bool:
+        pseudocode = str(record.get("pseudocode") or "")
+        if pseudocode.startswith("while (") and pseudocode.endswith(")"):
+            return True
+        if re.match(r"([A-Za-z_][A-Za-z0-9_\.]*) = \1 [\+\-] 1$", pseudocode):
+            return True
+        return False
+
+    def _while_family_signature(self, pseudocode: str) -> tuple[str, str] | None:
+        match = re.match(r"while \((.+?)\s*(==|!=|<=|>=|<|>)\s*(.+)\)$", pseudocode)
+        if not match:
+            return None
+        _, operator, right = match.groups()
+        return operator, self._normalize_window_text(right)
+
+    def _merge_while_chain_records(self, records: list[dict[str, Any]], while_count: int) -> dict[str, Any]:
+        merged = dict(records[0])
+        merged["pseudocode"] = self._describe_while_chain(records, while_count)
+        merged["assembly"] = f"while_chain x{while_count}"
+        merged["target_symbol"] = "while_chain"
+        merged["filtered"] = False
+        context = [str(item) for item in merged.get("context", []) if isinstance(item, str)]
+        context.append(f"while_chain_count={while_count}")
+        merged["context"] = self._unique(context)
+        return merged
+
+    def _describe_while_chain(self, records: list[dict[str, Any]], while_count: int) -> str:
+        conditions = [
+            str(record.get("pseudocode") or "")
+            for record in records
+            if str(record.get("pseudocode") or "").startswith("while (")
+        ]
+        if not conditions:
+            return f"while_chain(x{while_count})"
+        first_condition = conditions[0]
+        unique_conditions = list(dict.fromkeys(conditions))
+        if len(unique_conditions) == 1:
+            return f"while_chain({first_condition}, x{while_count})"
+        family = self._while_family_signature(first_condition)
+        if family:
+            operator, right = family
+            role = self._infer_while_chain_role(unique_conditions)
+            return f"while_chain({role} {operator} {right}, x{while_count})"
+        return f"while_chain({first_condition}, x{while_count})"
+
+    def _infer_while_chain_role(self, conditions: list[str]) -> str:
+        joined = "\n".join(conditions)
+        member_offsets = re.findall(r"thisObj\.member_([0-9a-f]+)", joined)
+        if member_offsets:
+            offsets = sorted({int(offset, 16) for offset in member_offsets})
+            if len(offsets) > 1:
+                steps = {offsets[index + 1] - offsets[index] for index in range(len(offsets) - 1)}
+                if len(steps) == 1 and next(iter(steps)) in {8, 16, 24, 32}:
+                    return "object_slot_traversal"
+                return "slot_scan"
+            return "member_check"
+        if "api_heap_" in joined:
+            return "buffer_scan"
+        if any(token in joined for token in ("local_var_", "arg_")):
+            return "value_scan"
+        return "*"
+
+    def _fold_repeated_scalar_records(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        folded: list[dict[str, Any]] = []
+        index = 0
+        while index < len(records):
+            if not self._is_scalar_repeat_candidate(records[index]):
+                folded.append(records[index])
+                index += 1
+                continue
+            end = index + 1
+            base_signature = self._scalar_repeat_signature(records[index])
+            while end < len(records) and self._scalar_repeat_signature(records[end]) == base_signature:
+                end += 1
+            if end - index < 3:
+                folded.append(records[index])
+                index += 1
+                continue
+            folded.append(self._merge_scalar_repeat_records(records[index:end]))
+            index = end
+        return folded
+
+    def _is_scalar_repeat_candidate(self, record: dict[str, Any]) -> bool:
+        if self._summary_record_family(record):
+            return False
+        pseudocode = str(record.get("pseudocode") or "")
+        if not pseudocode or pseudocode.startswith("call ") or pseudocode.startswith("if (") or pseudocode.startswith("while ("):
+            return False
+        if any(token in pseudocode for token in (" = ", "compare(", "test(")):
+            return True
+        return False
+
+    def _scalar_repeat_signature(self, record: dict[str, Any]) -> tuple[str, str] | None:
+        if not self._is_scalar_repeat_candidate(record):
+            return None
+        pseudocode = str(record.get("pseudocode") or "")
+        assembly = str(record.get("assembly") or "").split()[0].lower() if record.get("assembly") else ""
+        return assembly, self._normalize_window_text(pseudocode)
+
+    def _merge_scalar_repeat_records(self, records: list[dict[str, Any]]) -> dict[str, Any]:
+        merged = dict(records[0])
+        count = len(records)
+        merged["pseudocode"] = self._describe_scalar_repeat(records[0], count)
+        merged["assembly"] = f"scalar_repeat x{count}"
+        context = [str(item) for item in merged.get("context", []) if isinstance(item, str)]
+        context.append(f"repeated x{count}")
+        merged["context"] = self._unique(context)
+        merged["target_symbol"] = str(merged.get("target_symbol") or "repeat_scalar")
+        merged["filtered"] = False
+        return merged
+
+    def _describe_scalar_repeat(self, record: dict[str, Any], count: int) -> str:
+        pseudocode = str(record.get("pseudocode") or "")
+        increment = re.match(r"([A-Za-z_][A-Za-z0-9_\.]*) = \1 \+ 1$", pseudocode)
+        if increment:
+            return f"increment({increment.group(1)}, repeated x{count})"
+        decrement = re.match(r"([A-Za-z_][A-Za-z0-9_\.]*) = \1 - 1$", pseudocode)
+        if decrement:
+            return f"decrement({decrement.group(1)}, repeated x{count})"
+        compare_match = re.match(r"(compare\(.+\)|test\(.+\))$", pseudocode)
+        if compare_match:
+            return f"{compare_match.group(1)} repeated x{count}"
+        return f"{pseudocode} /* repeated x{count} */"
 
     def _match_backward_jump_loop(self, records: list[dict[str, Any]], index: int) -> tuple[int, dict[str, Any]] | None:
         for size in (3, 2):
