@@ -12,6 +12,10 @@
 # Editors
 .vscode/
 .idea/
+plan/
+reports/
+speakeasy_emulator.egg-info/
+__pycache__/
 
 # Original rules preserved
 *.log

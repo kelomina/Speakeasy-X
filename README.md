@@ -1,8 +1,12 @@
 # Speakeasy
 
-Speakeasy 是一个 Windows 恶意软件模拟框架，它在模拟的 Windows 运行环境中执行二进制文件、驱动程序和 shellcode，而不是使用完整的虚拟机。它模拟 API、进程/线程行为、文件系统、注册表和网络活动，使样本能够通过真实的执行路径继续运行。您可以使用 `speakeasy` 命令行工具进行快速分类，或将其作为 Python 库嵌入并生成结构化的 JSON 报告。
+Speakeasy(https://github.com/mandiant/speakeasy) 是一个 Windows 恶意软件模拟框架，它在模拟的 Windows 运行环境中执行二进制文件、驱动程序和 shellcode，而不是使用完整的虚拟机。它模拟 API、进程/线程行为、文件系统、注册表和网络活动，使样本能够通过真实的执行路径继续运行。您可以使用 `speakeasy` 命令行工具进行快速分类，或将其作为 Python 库嵌入并生成结构化的 JSON 报告。
 
 背景信息：[Mandiant 概述文章](https://cloud.google.com/blog/topics/threat-intelligence/emulation-of-malicious-shellcode-with-speakeasy/)。
+
+# Speakeasy-X
+
+本项目是基于Speakeasy的扩展，添加了一些额外的功能。现在可以通过本项目对被模拟执行的对象生成简单的反编译报告，反编译结果以中间语言呈现。简单反编译结果可以用于分析样本的行为，或者作为样本的特征用于机器学习训练。
 
 ## 快速开始
 
