@@ -1,0 +1,15 @@
+pefile
+capstone
+lznt1
+unicorn>=2.1.4
+pycryptodome
+pydantic>=2.0
+rich
+
+[dev]
+pytest
+ruff
+mypy
+
+[gdb]
+udbserver>=0.2.1
