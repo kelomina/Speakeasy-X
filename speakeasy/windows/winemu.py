@@ -4,6 +4,7 @@ import logging
 import ntpath
 import os
 import shlex
+import time
 import traceback
 from abc import abstractmethod
 from enum import IntEnum
@@ -553,7 +554,13 @@ class WindowsEmulator(BinaryEmulator):
 
     def start(self, addr=None, size=None):
         """
-        Begin emulation executing each run in the specified run queue
+        Begin emulation executing each run in the specified run queue.
+
+        Implements a global wall-clock timeout budget: the configured timeout
+        value is treated as the total time limit for ALL queued runs combined,
+        not a per-run limit. This prevents samples with many entry points or
+        exports from running indefinitely and ensures a report is always
+        generated when the function returns.
         """
         try:
             run = self.run_queue.pop(0)
@@ -578,18 +585,38 @@ class WindowsEmulator(BinaryEmulator):
             )
             udbserver(self.emu_eng.emu, port=self.gdb_port, start_addr=0)  # type: ignore[union-attr]
 
-        timeout = 0 if self.gdb_port is not None else self.config.timeout
+        # Global wall-clock deadline shared across all queued runs.
+        # When GDB is attached (gdb_port set), timeout is disabled (0) so the
+        # debugger can pause at its leisure.
+        configured_timeout = 0 if self.gdb_port is not None else self.config.timeout
+        global_deadline = time.monotonic() + configured_timeout if configured_timeout > 0 else 0.0
+        _global_timed_out = False
 
         if self.profiler:
             self.profiler.set_start_time()
 
         while True:
+            # Check global budget before starting each run.
+            if global_deadline > 0:
+                remaining = global_deadline - time.monotonic()
+                if remaining <= 0:
+                    logger.error(
+                        "* Global timeout of %d sec(s) reached (runs remaining in queue: %d).",
+                        configured_timeout,
+                        len(self.run_queue),
+                    )
+                    _global_timed_out = True
+                    break
+                run_timeout = max(0.1, remaining)
+            else:
+                run_timeout = configured_timeout
+
             try:
                 self.curr_mod = self.get_module_from_addr(self.curr_run.start_addr)  # type: ignore[union-attr]
-                self.emu_eng.start(self.curr_run.start_addr, timeout=timeout, count=self.config.max_instructions)  # type: ignore[union-attr]
-                if self.profiler and timeout > 0:
-                    if self.profiler.get_run_time() > timeout:
-                        logger.error("* Timeout of %d sec(s) reached.", timeout)
+                self.emu_eng.start(self.curr_run.start_addr, timeout=run_timeout, count=self.config.max_instructions)  # type: ignore[union-attr]
+                if self.profiler and run_timeout > 0:
+                    if self.profiler.get_run_time() > run_timeout:
+                        logger.error("* Timeout of %d sec(s) reached.", run_timeout)
             except KeyboardInterrupt:
                 logger.error("* User exited.")
                 return
@@ -609,12 +636,32 @@ class WindowsEmulator(BinaryEmulator):
                 run = self.on_run_complete()
                 if not run:
                     break
-                if self.profiler and timeout > 0 and self.profiler.get_run_time() > timeout:
-                    logger.error("* Timeout of %d sec(s) reached.", timeout)
+                # Also check global budget after an error-triggered run transition.
+                if global_deadline > 0 and time.monotonic() >= global_deadline:
+                    logger.error(
+                        "* Global timeout of %d sec(s) reached after error transition (runs remaining in queue: %d).",
+                        configured_timeout,
+                        len(self.run_queue),
+                    )
+                    _global_timed_out = True
                     break
                 continue
             break
 
+        # Tag timed-out runs still in the queue so the report reflects partial
+        # coverage. This preserves the queue entries so entry_point_count in the
+        # JSON report includes both executed and skipped runs.
+        if _global_timed_out:
+            for pending_run in self.run_queue:
+                if pending_run.error is None:
+                    pending_run.error = type(
+                        "Run", (), {"error_str": lambda self: f"Global timeout ({configured_timeout}s) - run not executed"}
+                    )()
+
+        # Always call on_emu_complete to finalize profiler data and generate
+        # the report. Previously this was always called; now it is guaranteed
+        # even after a global timeout, ensuring the report is written before
+        # the parent process kills this worker.
         self.on_emu_complete()
 
     def get_current_run(self):
