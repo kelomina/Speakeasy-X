@@ -333,14 +333,16 @@ class _PeParser(pefile.PE):
         if not self.mapped_image:
             raise ValueError("PE image has not been mapped yet")
 
+        # 一次性创建可变缓冲区，避免循环内每次都复制整个镜像（O(N*M) -> O(M)）
+        ba = bytearray(self.mapped_image)
         for addr, imp in self.imports.items():
-            tmp = bytearray(self.mapped_image)
             offset = addr - self.base
-            tmp[offset : offset + self.ptr_size] = self.imp_id.to_bytes(self.ptr_size, "little")
-            self.mapped_image = bytes(tmp)
+            ba[offset : offset + self.ptr_size] = self.imp_id.to_bytes(self.ptr_size, "little")
 
             self.import_table.update({self.imp_id: imp})
             self.imp_id += self.imp_step
+        # 循环结束后一次性写回
+        self.mapped_image = bytes(ba)
 
     def get_export_by_name(self, name):
         for exp in self.get_exports():

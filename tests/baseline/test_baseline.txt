@@ -1,0 +1,26 @@
+......................FFFFF............F....F...............ssssssssssss [ 56%]
+...............FF..............................FF.......                 [100%]
+=========================== short test summary info ===========================
+FAILED tests/test_examples.py::test_dbgview_example_runs - assert 2 == 0
+ +  where 2 = CompletedProcess(args=['e:\\Project\\python\\Speakeasy-X\\.env\\Scripts\\python.exe', 'E:\\Project\\python\\Speakeasy-...t open file 'E:\\\\Project\\\\python\\\\Speakeasy-X\\\\examples\\\\dbgview.py': [Errno 2] No such file or directory\n").returncode
+FAILED tests/test_examples.py::test_emu_dll_example_exercises_hooks - FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Project\\python\\Speakeasy-X\\examples\\emu_dll.py'
+FAILED tests/test_examples.py::test_emu_exe_example_modifies_ntreadfile_buffer - FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Project\\python\\Speakeasy-X\\examples\\emu_exe.py'
+FAILED tests/test_examples.py::test_upx_unpack_example_runs_and_dumps_file - assert 2 == 0
+ +  where 2 = CompletedProcess(args=['e:\\Project\\python\\Speakeasy-X\\.env\\Scripts\\python.exe', 'E:\\Project\\python\\Speakeasy-...pen file 'E:\\\\Project\\\\python\\\\Speakeasy-X\\\\examples\\\\upx_unpack.py': [Errno 2] No such file or directory\n").returncode
+FAILED tests/test_examples.py::test_usb_emu_example_runs_and_emits_report - FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Project\\python\\Speakeasy-X\\examples\\usb_emu.py'
+FAILED tests/test_kernel_bootstrap.py::test_kernel_import_data_allocation_uses_system_process_context - speakeasy.errors.SpeakeasyError: Target file not found: E:\Project\python\Speakeasy-X\tests\capa-testfiles\Practical Malware Analysis Lab 10-03.sys_
+FAILED tests/test_map_view_of_file.py::test_map_view_of_file_uses_readable_protections - FileNotFoundError: [WinError 2] 系统找不到指定的文件。
+FAILED tests/test_profiler_artifacts.py::test_pseudocode_renderer_avoids_thisobj_alias_for_plain_ecx_immediate - KeyError: 'pseudocode'
+FAILED tests/test_profiler_artifacts.py::test_pseudocode_renderer_prunes_stack_noise_and_stack_spill_moves - AssertionError: assert {'_pending': True, 'address': '0x500100', '_addr': 5243136, '_size': 5} is None
+FAILED tests/test_seh.py::test_seh_dispatch - AssertionError: assert 1 == 7
+ +  where 1 = len(['Hello emulator\n'])
+ +  and   7 = len(['Hello emulator\n', 'First access violation\r\n', 'First nested access violation\r\n', 'Second nested access violation\r\n', 'After access violations\r\n', 'In finally\r\n', ...])
+FAILED tests/test_seh.py::test_seh_without_dispatch - AssertionError: assert 'Invalid memo... (UC_ERR_MAP)' == 'invalid_write'
+  
+  - invalid_write
+  + Invalid memory mapping (UC_ERR_MAP)
+
+
+=== Baseline summary: 105 passed, 11 failed, 12 skipped, 128 total ===
+=== NOTE: run with -p no:faulthandler to avoid native access violation in unicorn.mem_regions() ===
+===       when pytest default faulthandler is enabled (Python 3.14 + unicorn 2.1.4 interaction) ===

@@ -1,6 +1,7 @@
-from typing import Annotated, Literal
+from dataclasses import dataclass
+from typing import Annotated, Any, Literal, NamedTuple
 
-from pydantic import BaseModel, Discriminator, Field
+from pydantic import BaseModel, Discriminator, Field, field_serializer
 
 # process events
 PROC_CREATE = "process_create"
@@ -38,41 +39,17 @@ EXCEPTION = "exception"
 API = "api"
 
 
-class TracePosition(BaseModel):
-    """Locates where an event occurred in execution time and context.
+class TracePosition(NamedTuple):
+    """定位事件发生的位置（指令计数、线程、进程、PC）。
 
-    Every emitted event carries this structure so consumers can reconstruct
-    chronology and thread/process ownership.
-
-    Use ``tick`` ordering for timeline reconstruction and ``pc`` for direct
-    disassembly alignment.
+    NamedTuple 用于轻量构造，序列化时通过 Event 的 field_serializer 转为 dict，
+    保持 JSON schema 不变。
     """
 
-    tick: int = Field(
-        description=(
-            "Instruction-count tick at the time of the event.\n\n"
-            "Use this as the primary event ordering key within a run."
-        )
-    )
-    tid: int = Field(
-        description=(
-            "Thread identifier active when the event was emitted.\n\n"
-            "Correlate this with thread creation/injection activity."
-        )
-    )
-    pid: int = Field(
-        description=(
-            "Process identifier active when the event was emitted.\n\n"
-            "Use this to separate behavior across process boundaries."
-        )
-    )
-    pc: int | None = Field(
-        default=None,
-        description=(
-            "Program counter at event emission time, when available.\n\n"
-            "Some synthetic events may omit this if no precise PC context exists."
-        ),
-    )
+    tick: int
+    tid: int
+    pid: int
+    pc: int | None = None
 
 
 class Event(BaseModel):
@@ -91,14 +68,18 @@ class Event(BaseModel):
     )
     event: str = Field(description=("Event type discriminator.\n\nDetermines which concrete payload schema applies."))
 
+    @field_serializer("pos")
+    def _serialize_pos(self, value: TracePosition) -> dict[str, Any] | TracePosition:
+        """NamedTuple 默认序列化为 list，这里转为 dict 保持 JSON schema。"""
+        if isinstance(value, TracePosition):
+            return value._asdict()
+        return value
 
-class ApiEvent(Event):
-    """Records one intercepted API invocation.
 
-    API events are emitted by import-call handlers and represent core behavioral
-    telemetry for most runs.
+class ApiEventSchema(Event):
+    """Pydantic schema for API call events, used in the AnyEvent discriminated union.
 
-    Use these entries to understand control flow and argument-level intent.
+    Keep field definitions in sync with the dataclass :class:`ApiEvent` below.
     """
 
     event: Literal["api"] = Field(default="api", description="Discriminator for API call events.")
@@ -121,6 +102,32 @@ class ApiEvent(Event):
             "Use this to identify failure codes and branch-driving outcomes."
         ),
     )
+
+
+@dataclass(slots=True)
+class ApiEvent:
+    """高频 API 调用事件，使用 dataclass(slots=True) 降低构造开销。
+
+    序列化时通过 to_dict() 转为 dict，由 Pydantic AnyEvent union 验证。
+    字段须与 ApiEventSchema 保持一致。
+    """
+
+    pos: TracePosition
+    api_name: str
+    args: list[str]
+    ret_val: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """转为 dict 供 Pydantic 验证，保持 JSON schema 不变。"""
+        pos = self.pos
+        pos_dict = pos._asdict() if hasattr(pos, "_asdict") else dict(pos)
+        return {
+            "event": "api",
+            "pos": pos_dict,
+            "api_name": self.api_name,
+            "args": list(self.args),
+            "ret_val": self.ret_val,
+        }
 
 
 class ProcessCreateEvent(Event):
@@ -558,7 +565,7 @@ class ExceptionEvent(Event):
 
 
 AnyEvent = Annotated[
-    ApiEvent
+    ApiEventSchema
     | ProcessCreateEvent
     | MemAllocEvent
     | MemWriteEvent

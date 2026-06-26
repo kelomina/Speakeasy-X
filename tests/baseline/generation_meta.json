@@ -1,0 +1,38 @@
+{
+  "argv_test_x64": {
+    "elapsed_seconds": 0.07353490000241436,
+    "error": null,
+    "sample": "argv_test_x64.exe.xz",
+    "status": "ok"
+  },
+  "argv_test_x86": {
+    "elapsed_seconds": 0.08482550000189804,
+    "error": null,
+    "sample": "argv_test_x86.exe.xz",
+    "status": "ok"
+  },
+  "dll_test_x86": {
+    "elapsed_seconds": 0.1310708999990311,
+    "error": null,
+    "sample": "dll_test_x86.dll.xz",
+    "status": "ok"
+  },
+  "file_access_test_x64": {
+    "elapsed_seconds": 0.11302789999899687,
+    "error": null,
+    "sample": "file_access_test_x64.exe.xz",
+    "status": "ok"
+  },
+  "seh_test_x86": {
+    "elapsed_seconds": 0.11736480000035954,
+    "error": null,
+    "sample": "seh_test_x86.exe.xz",
+    "status": "ok"
+  },
+  "wdm_test_x86": {
+    "elapsed_seconds": 0.09366829999999027,
+    "error": null,
+    "sample": "wdm_test_x86.sys.xz",
+    "status": "ok"
+  }
+}

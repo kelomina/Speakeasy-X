@@ -35,6 +35,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pytest-xdist",  # 并行测试
+    "pytest-cov",    # 覆盖率
+    "pytest-timeout",  # 超时控制
     "ruff",
     "mypy",
 ]
@@ -67,6 +70,17 @@ speakeasy = [
     "resources/**/*",
     "winenv/decoys/**/*",
 ]
+
+[tool.pytest.ini_options]
+# pytest 测试配置：测试路径、标记与默认选项
+testpaths = ["tests"]
+markers = [
+    "slow: 标记运行较慢的测试",
+    "examples: 标记示例测试",
+    "pma: 标记 PMA 样本测试",
+    "unit: 标记单元测试",
+]
+addopts = "-q"
 
 [tool.ruff]
 line-length = 120

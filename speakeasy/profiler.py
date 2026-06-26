@@ -127,6 +127,9 @@ class Run:
         self.instruction_trace: list[dict[str, Any]] = []
         self.memory_regions: list[dict[str, Any]] = []
         self.loaded_modules: list[dict[str, Any]] = []
+        # DNS/HTTP 去重索引，O(1) 查重替代列表遍历
+        self.dns_seen: set[tuple[str, str | None]] = set()
+        self.http_seen: set[tuple[str, int, str, str | None]] = set()
 
     def get_api_count(self):
         """
@@ -162,6 +165,8 @@ class Profiler:
         self.pseudocode_show_register_values: bool = False
         self.pseudocode_enable_heuristics: bool = False
         self.pseudocode_renderer: PseudocodeRenderer | None = None
+        # 指令跟踪上限，超过后采样记录，防止长样本内存爆炸
+        self.max_instruction_trace: int = 100000
 
     def attach_emulator(self, emulator: Any) -> None:
         self.emulator_ref = weakref.ref(emulator)
@@ -212,6 +217,14 @@ class Profiler:
     def record_instruction(self, run: Run | None, address: int, size: int) -> None:
         if run is None:
             return
+        # 超过上限后采样：每 interval 条记录 1 条，控制内存占用
+        limit = self.max_instruction_trace
+        if limit > 0:
+            trace_len = len(run.instruction_trace)
+            if trace_len >= limit:
+                interval = max(1, trace_len // limit)
+                if run.instr_cnt % (interval + 1) != 0:
+                    return
         renderer = self.get_pseudocode_renderer()
         if renderer is None:
             return
@@ -418,15 +431,13 @@ class Profiler:
         return self.artifact_store.put_bytes(payload)
 
     def merge_binary_data(self, artifact_ref: str | None, data: bytes, limit: int | None = None) -> str | None:
-        """Append raw bytes to an existing artifact payload and store the merged result."""
+        """追加字节到已有产物，使用增量缓冲避免 O(n²) 拼接。"""
         if not data and artifact_ref:
             return artifact_ref
         if not artifact_ref:
             return self.put_binary_data(data, limit=limit)
-        merged = self.artifact_store.get_bytes(artifact_ref) + data
-        if limit:
-            merged = merged[:limit]
-        return self.artifact_store.put_bytes(merged)
+        # 增量缓冲：extend 是 O(1) 均摊，压缩延迟到 to_report_data
+        return self.artifact_store.append_bytes(artifact_ref, data, limit=limit)
 
     def record_error_event(self, error: ErrorInfo) -> None:
         """Log a top level emulator error for the emulation report."""
@@ -748,9 +759,11 @@ class Profiler:
         """
         Log DNS name lookups for the emulation report
         """
-        for evt in run.events:
-            if isinstance(evt, NetDnsEvent) and evt.query == domain and evt.response == ip:
-                return
+        # 用 set 索引 O(1) 查重，替代列表遍历
+        key = (domain, ip if ip else None)
+        if key in run.dns_seen:
+            return
+        run.dns_seen.add(key)
 
         event = NetDnsEvent(
             pos=pos,
@@ -766,6 +779,13 @@ class Profiler:
         Log HTTP traffic that occur during emulation
         """
         proto_str = "https" if secure else "http"
+        headers_value = headers if headers else None
+
+        # 用 set 索引 O(1) 查重，替代列表遍历
+        key = (server, port, f"tcp.{proto_str}", headers_value)
+        if key in run.http_seen:
+            return
+
         body_ref = self.put_binary_data(body or b"", limit=0x3000)
 
         event = NetHttpEvent(
@@ -773,20 +793,10 @@ class Profiler:
             server=server,
             port=port,
             proto=f"tcp.{proto_str}",
-            headers=headers if headers else None,
+            headers=headers_value,
             body_ref=body_ref,
         )
-
-        for evt in run.events:
-            if (
-                isinstance(evt, NetHttpEvent)
-                and evt.server == event.server
-                and evt.port == event.port
-                and evt.proto == event.proto
-                and evt.headers == event.headers
-            ):
-                return
-
+        run.http_seen.add(key)
         run.events.append(event)
 
     def record_dyn_code_event(self, run, tag, base, size):
@@ -880,7 +890,13 @@ class Profiler:
 
             events = None
             if r.events:
-                events = list(r.events)
+                # dataclass 事件（如 ApiEvent）转为 dict 供 Pydantic AnyEvent 验证
+                events = []
+                for evt in r.events:
+                    if hasattr(evt, "to_dict") and callable(evt.to_dict):
+                        events.append(evt.to_dict())
+                    else:
+                        events.append(evt)
 
             sym_accesses: list[SymAccessReport] | None = None
             if r.sym_access:

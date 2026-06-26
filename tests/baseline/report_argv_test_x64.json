@@ -1,0 +1,1572 @@
+{
+    "report_version": "3.0.0",
+    "emulation_total_runtime": 0.048,
+    "timestamp": 1782481717,
+    "arch": "x64",
+    "sha256": "cd273b844fd159841ed8336a9d33525777d8eb2b7166c31770c13857e619ccc0",
+    "size": 10752,
+    "filetype": "exe",
+    "image_base": "0x140000000",
+    "entry_points": [
+        {
+            "ep_type": "module_entry",
+            "start_addr": "0x140001364",
+            "ep_args": [
+                "0x4000",
+                "0x4010",
+                "0x4020",
+                "0x4030"
+            ],
+            "tid": 1256,
+            "apihash": "fd610b9248023d093e993b3f2ef1a5e2b7f4dec8c52e4a436583338000a8fa3e",
+            "ret_val": "0x140000100",
+            "events": [
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368715214
+                    ],
+                    "event": "api",
+                    "api_name": "kernel32.GetSystemTimeAsFileTime",
+                    "args": [
+                        "0x12fff90"
+                    ]
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368715228
+                    ],
+                    "event": "api",
+                    "api_name": "kernel32.GetCurrentThreadId",
+                    "args": [],
+                    "ret_val": "0x4e8"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368715240
+                    ],
+                    "event": "api",
+                    "api_name": "kernel32.GetCurrentProcessId",
+                    "args": [],
+                    "ret_val": "0x4d4"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368715256
+                    ],
+                    "event": "api",
+                    "api_name": "kernel32.QueryPerformanceCounter",
+                    "args": [
+                        "0x12fff98"
+                    ],
+                    "ret_val": "0x1"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368713817
+                    ],
+                    "event": "api",
+                    "api_name": "api-ms-win-crt-runtime-l1-1-0._initterm_e",
+                    "args": [
+                        "0x1400021b0",
+                        "0x1400021c8"
+                    ],
+                    "ret_val": "0x0"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368713850
+                    ],
+                    "event": "api",
+                    "api_name": "api-ms-win-crt-runtime-l1-1-0._initterm",
+                    "args": [
+                        "0x140002198",
+                        "0x1400021a8"
+                    ],
+                    "ret_val": "0x0"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368713964
+                    ],
+                    "event": "api",
+                    "api_name": "api-ms-win-crt-runtime-l1-1-0.__p___argv",
+                    "args": [],
+                    "ret_val": "0x7f50"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368713972
+                    ],
+                    "event": "api",
+                    "api_name": "api-ms-win-crt-runtime-l1-1-0.__p___argc",
+                    "args": [],
+                    "ret_val": "0x7fa0"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368713980
+                    ],
+                    "event": "api",
+                    "api_name": "api-ms-win-crt-runtime-l1-1-0._get_initial_narrow_environment",
+                    "args": [],
+                    "ret_val": "0x8000"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368713278
+                    ],
+                    "event": "api",
+                    "api_name": "api-ms-win-crt-stdio-l1-1-0.__acrt_iob_func",
+                    "args": [
+                        "0x1"
+                    ],
+                    "ret_val": "0x1"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368713309
+                    ],
+                    "event": "api",
+                    "api_name": "api-ms-win-crt-stdio-l1-1-0.__stdio_common_vfprintf",
+                    "args": [
+                        "0x0",
+                        "0x1",
+                        "argc = 3\n"
+                    ],
+                    "ret_val": "0x9"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368713309
+                    ],
+                    "event": "api",
+                    "api_name": "api-ms-win-crt-stdio-l1-1-0.__stdio_common_vfprintf",
+                    "args": [
+                        "0x0",
+                        "0x1",
+                        "argv[0] = svchost.exe\n"
+                    ],
+                    "ret_val": "0x16"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368713309
+                    ],
+                    "event": "api",
+                    "api_name": "api-ms-win-crt-stdio-l1-1-0.__stdio_common_vfprintf",
+                    "args": [
+                        "0x0",
+                        "0x1",
+                        "argv[1] = myarg1\n"
+                    ],
+                    "ret_val": "0x11"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368713278
+                    ],
+                    "event": "api",
+                    "api_name": "api-ms-win-crt-stdio-l1-1-0.__acrt_iob_func",
+                    "args": [
+                        "0x1"
+                    ],
+                    "ret_val": "0x1"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368713309
+                    ],
+                    "event": "api",
+                    "api_name": "api-ms-win-crt-stdio-l1-1-0.__stdio_common_vfprintf",
+                    "args": [
+                        "0x0",
+                        "0x1",
+                        "argv[2] = myarg2\n"
+                    ],
+                    "ret_val": "0x11"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368715780
+                    ],
+                    "event": "api",
+                    "api_name": "kernel32.GetModuleHandleW",
+                    "args": [
+                        "0x0"
+                    ],
+                    "ret_val": "0x140000000"
+                },
+                {
+                    "pos": [
+                        0,
+                        1256,
+                        1236,
+                        5368714011
+                    ],
+                    "event": "api",
+                    "api_name": "api-ms-win-crt-runtime-l1-1-0.exit",
+                    "args": [
+                        "0x0"
+                    ]
+                }
+            ],
+            "memory": {
+                "layout": [
+                    {
+                        "tag": "emu.module.argv_test_x64.exe.headers.0x140000000",
+                        "address": "0x140000000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.argv_test_x64.exe..text.0x140001000",
+                        "address": "0x140001000",
+                        "size": "0xdf8",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.argv_test_x64.exe..rdata.0x140002000",
+                        "address": "0x140002000",
+                        "size": "0xcc2",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.argv_test_x64.exe..data.0x140003000",
+                        "address": "0x140003000",
+                        "size": "0x638",
+                        "prot": "rw-",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.argv_test_x64.exe..pdata.0x140004000",
+                        "address": "0x140004000",
+                        "size": "0x168",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.argv_test_x64.exe..gfids.0x140005000",
+                        "address": "0x140005000",
+                        "size": "0x1c",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.argv_test_x64.exe..rsrc.0x140006000",
+                        "address": "0x140006000",
+                        "size": "0x1e0",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.argv_test_x64.exe..reloc.0x140007000",
+                        "address": "0x140007000",
+                        "size": "0x1c",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.stack.0x1200000",
+                        "address": "0x1200000",
+                        "size": "0x100000",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.gdt.0x1000",
+                        "address": "0x1000",
+                        "size": "0x1000",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.segment.gdt.0x2000",
+                        "address": "0x2000",
+                        "size": "0x1000",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.segment.gs.0x3000",
+                        "address": "0x3000",
+                        "size": "0x1000",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.KUSER_SHARED_DATA.0xfffff78000000000",
+                        "address": "0xfffff78000000000",
+                        "size": "0x1000",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.KUSER_SHARED_DATA.0x7ffe0000",
+                        "address": "0x7ffe0000",
+                        "size": "0x1000",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.ntoskrnl.exe.headers.0x803d0000",
+                        "address": "0x803d0000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.ntoskrnl.exe..text.0x803d1000",
+                        "address": "0x803d1000",
+                        "size": "0xb50",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.ntoskrnl.exe..edata.0x803d2000",
+                        "address": "0x803d2000",
+                        "size": "0x142c",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.hal.dll.headers.0xc1000000",
+                        "address": "0xc1000000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.hal.dll..text.0xc1001000",
+                        "address": "0xc1001000",
+                        "size": "0x90",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.hal.dll..edata.0xc1002000",
+                        "address": "0xc1002000",
+                        "size": "0x131",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.netio.sys.headers.0xd4000000",
+                        "address": "0xd4000000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.netio.sys..text.0xd4001000",
+                        "address": "0xd4001000",
+                        "size": "0x360",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.netio.sys..edata.0xd4002000",
+                        "address": "0xd4002000",
+                        "size": "0x745",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.ndis.sys.headers.0xc7000000",
+                        "address": "0xc7000000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.ndis.sys..text.0xc7001000",
+                        "address": "0xc7001000",
+                        "size": "0x300",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.ndis.sys..edata.0xc7002000",
+                        "address": "0xc7002000",
+                        "size": "0x6aa",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.kernel32.dll.headers.0x77000000",
+                        "address": "0x77000000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.kernel32.dll..text.0x77001000",
+                        "address": "0x77001000",
+                        "size": "0x3a80",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.kernel32.dll..edata.0x77005000",
+                        "address": "0x77005000",
+                        "size": "0x63ac",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.ntdll.dll.headers.0x7c000000",
+                        "address": "0x7c000000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.ntdll.dll..text.0x7c001000",
+                        "address": "0x7c001000",
+                        "size": "0xca0",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.ntdll.dll..edata.0x7c002000",
+                        "address": "0x7c002000",
+                        "size": "0x16a9",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.ws2_32.dll.headers.0x78c00000",
+                        "address": "0x78c00000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.ws2_32.dll..text.0x78c01000",
+                        "address": "0x78c01000",
+                        "size": "0xf90",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.ws2_32.dll..edata.0x78c02000",
+                        "address": "0x78c02000",
+                        "size": "0x148e",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.wininet.dll.headers.0x7bc00000",
+                        "address": "0x7bc00000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.wininet.dll..text.0x7bc01000",
+                        "address": "0x7bc01000",
+                        "size": "0x2a0",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.wininet.dll..edata.0x7bc02000",
+                        "address": "0x7bc02000",
+                        "size": "0x4e7",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.winhttp.dll.headers.0x7ba00000",
+                        "address": "0x7ba00000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.winhttp.dll..text.0x7ba01000",
+                        "address": "0x7ba01000",
+                        "size": "0x270",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.winhttp.dll..edata.0x7ba02000",
+                        "address": "0x7ba02000",
+                        "size": "0x4df",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.advapi32.dll.headers.0x78000000",
+                        "address": "0x78000000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.advapi32.dll..text.0x78001000",
+                        "address": "0x78001000",
+                        "size": "0xb40",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.advapi32.dll..edata.0x78002000",
+                        "address": "0x78002000",
+                        "size": "0x13c0",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.user32.dll.headers.0x77d10000",
+                        "address": "0x77d10000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.user32.dll..text.0x77d11000",
+                        "address": "0x77d11000",
+                        "size": "0x13b0",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.user32.dll..edata.0x77d13000",
+                        "address": "0x77d13000",
+                        "size": "0x2063",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.gdi32.dll.headers.0x77e10000",
+                        "address": "0x77e10000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.gdi32.dll..text.0x77e11000",
+                        "address": "0x77e11000",
+                        "size": "0x420",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.gdi32.dll..edata.0x77e12000",
+                        "address": "0x77e12000",
+                        "size": "0x651",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.msvcrt.dll.headers.0x77f10000",
+                        "address": "0x77f10000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.msvcrt.dll..text.0x77f11000",
+                        "address": "0x77f11000",
+                        "size": "0x1750",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.msvcrt.dll..edata.0x77f13000",
+                        "address": "0x77f13000",
+                        "size": "0x201a",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.dnsapi.dll.headers.0x78f10000",
+                        "address": "0x78f10000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.dnsapi.dll..text.0x78f11000",
+                        "address": "0x78f11000",
+                        "size": "0x30",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.dnsapi.dll..edata.0x78f12000",
+                        "address": "0x78f12000",
+                        "size": "0x6d",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.shlwapi.dll.headers.0x67000000",
+                        "address": "0x67000000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.shlwapi.dll..text.0x67001000",
+                        "address": "0x67001000",
+                        "size": "0x2d0",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.shlwapi.dll..edata.0x67002000",
+                        "address": "0x67002000",
+                        "size": "0x48f",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.advpack.dll.headers.0x68f00000",
+                        "address": "0x68f00000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.advpack.dll..text.0x68f01000",
+                        "address": "0x68f01000",
+                        "size": "0x30",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.advpack.dll..edata.0x68f02000",
+                        "address": "0x68f02000",
+                        "size": "0x6e",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.shell32.dll.headers.0x69000000",
+                        "address": "0x69000000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.shell32.dll..text.0x69001000",
+                        "address": "0x69001000",
+                        "size": "0x2c30",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.shell32.dll..edata.0x69004000",
+                        "address": "0x69004000",
+                        "size": "0x3ce7",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.WTSAPI32.dll.headers.0x63000000",
+                        "address": "0x63000000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.WTSAPI32.dll..text.0x63001000",
+                        "address": "0x63001000",
+                        "size": "0x60",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.WTSAPI32.dll..edata.0x63002000",
+                        "address": "0x63002000",
+                        "size": "0xda",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.CRYPT32.dll.headers.0x58000000",
+                        "address": "0x58000000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.CRYPT32.dll..text.0x58001000",
+                        "address": "0x58001000",
+                        "size": "0x30",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.CRYPT32.dll..edata.0x58002000",
+                        "address": "0x58002000",
+                        "size": "0x8c",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.mscoree.dll.headers.0x53000000",
+                        "address": "0x53000000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.mscoree.dll..text.0x53001000",
+                        "address": "0x53001000",
+                        "size": "0x30",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.mscoree.dll..edata.0x53002000",
+                        "address": "0x53002000",
+                        "size": "0x7d",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.sfc_os.dll.headers.0x5fe00000",
+                        "address": "0x5fe00000",
+                        "size": "0x1000",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.sfc_os.dll..text.0x5fe01000",
+                        "address": "0x5fe01000",
+                        "size": "0x80",
+                        "prot": "r-x",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module.sfc_os.dll..edata.0x5fe02000",
+                        "address": "0x5fe02000",
+                        "size": "0x11e",
+                        "prot": "r--",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module_arg_0.0x4000",
+                        "address": "0x4000",
+                        "size": "0x10",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module_arg_1.0x4010",
+                        "address": "0x4010",
+                        "size": "0x10",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module_arg_2.0x4020",
+                        "address": "0x4020",
+                        "size": "0x10",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.module_arg_3.0x4030",
+                        "address": "0x4030",
+                        "size": "0x10",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.EPROCESS.0xe0000000",
+                        "address": "0xe0000000",
+                        "size": "0x1000",
+                        "prot": "???",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.PEB.0x4040",
+                        "address": "0x4040",
+                        "size": "0x7b0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.EPROCESS.ProcessParameters.0x47f0",
+                        "address": "0x47f0",
+                        "size": "0x1c0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.ETHREAD.0x5000",
+                        "address": "0x5000",
+                        "size": "0x1000",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.PEB_LDR_DATA.0x6000",
+                        "address": "0x6000",
+                        "size": "0x1000",
+                        "prot": "???",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x49b0",
+                        "address": "0x49b0",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x4a70",
+                        "address": "0x4a70",
+                        "size": "0xb0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x4b20",
+                        "address": "0x4b20",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x4be0",
+                        "address": "0x4be0",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x4ca0",
+                        "address": "0x4ca0",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x4d60",
+                        "address": "0x4d60",
+                        "size": "0xb0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x4e10",
+                        "address": "0x4e10",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x4ed0",
+                        "address": "0x4ed0",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7000",
+                        "address": "0x7000",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x70c0",
+                        "address": "0x70c0",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7180",
+                        "address": "0x7180",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7240",
+                        "address": "0x7240",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7300",
+                        "address": "0x7300",
+                        "size": "0xb0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x73b0",
+                        "address": "0x73b0",
+                        "size": "0xb0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7460",
+                        "address": "0x7460",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7520",
+                        "address": "0x7520",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x75e0",
+                        "address": "0x75e0",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x76a0",
+                        "address": "0x76a0",
+                        "size": "0xb0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7750",
+                        "address": "0x7750",
+                        "size": "0xb0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7800",
+                        "address": "0x7800",
+                        "size": "0xb0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x78b0",
+                        "address": "0x78b0",
+                        "size": "0xb0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7960",
+                        "address": "0x7960",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7a20",
+                        "address": "0x7a20",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7ae0",
+                        "address": "0x7ae0",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7ba0",
+                        "address": "0x7ba0",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7c60",
+                        "address": "0x7c60",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7d20",
+                        "address": "0x7d20",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7de0",
+                        "address": "0x7de0",
+                        "size": "0xc0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "emu.struct.LDR_DATA_TABLE_ENTRY.0x7ea0",
+                        "address": "0x7ea0",
+                        "size": "0xb0",
+                        "prot": "rwx",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "api.argv.0x7f50",
+                        "address": "0x7f50",
+                        "size": "0x50",
+                        "prot": "---",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "api.argc.0x7fa0",
+                        "address": "0x7fa0",
+                        "size": "0x10",
+                        "prot": "---",
+                        "is_free": false
+                    },
+                    {
+                        "tag": "api.envp.0x8000",
+                        "address": "0x8000",
+                        "size": "0x80",
+                        "prot": "---",
+                        "is_free": false
+                    }
+                ],
+                "modules": [
+                    {
+                        "name": "argv_test_x64.exe",
+                        "path": "C:\\Windows\\system32\\argv_test_x64.exe",
+                        "base": "0x140000000",
+                        "size": "0x8000",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x140001000",
+                                "size": "0xdf8",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".rdata",
+                                "address": "0x140002000",
+                                "size": "0xcc2",
+                                "prot": "r--"
+                            },
+                            {
+                                "name": ".data",
+                                "address": "0x140003000",
+                                "size": "0x638",
+                                "prot": "rw-"
+                            },
+                            {
+                                "name": ".pdata",
+                                "address": "0x140004000",
+                                "size": "0x168",
+                                "prot": "r--"
+                            },
+                            {
+                                "name": ".gfids",
+                                "address": "0x140005000",
+                                "size": "0x1c",
+                                "prot": "r--"
+                            },
+                            {
+                                "name": ".rsrc",
+                                "address": "0x140006000",
+                                "size": "0x1e0",
+                                "prot": "r--"
+                            },
+                            {
+                                "name": ".reloc",
+                                "address": "0x140007000",
+                                "size": "0x1c",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "ntoskrnl.exe",
+                        "path": "C:\\Windows\\system32\\ntoskrnl.exe",
+                        "base": "0x803d0000",
+                        "size": "0x442c",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x803d1000",
+                                "size": "0xb50",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x803d2000",
+                                "size": "0x142c",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "hal.dll",
+                        "path": "C:\\Windows\\system32\\hal.dll",
+                        "base": "0xc1000000",
+                        "size": "0x3131",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0xc1001000",
+                                "size": "0x90",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0xc1002000",
+                                "size": "0x131",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "netio.sys",
+                        "path": "C:\\Windows\\system32\\drivers\\netio.sys",
+                        "base": "0xd4000000",
+                        "size": "0x3745",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0xd4001000",
+                                "size": "0x360",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0xd4002000",
+                                "size": "0x745",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "ndis.sys",
+                        "path": "C:\\Windows\\system32\\drivers\\ndis.sys",
+                        "base": "0xc7000000",
+                        "size": "0x36aa",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0xc7001000",
+                                "size": "0x300",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0xc7002000",
+                                "size": "0x6aa",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "kernel32.dll",
+                        "path": "C:\\Windows\\system32\\kernel32.dll",
+                        "base": "0x77000000",
+                        "size": "0xc3ac",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x77001000",
+                                "size": "0x3a80",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x77005000",
+                                "size": "0x63ac",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "ntdll.dll",
+                        "path": "C:\\Windows\\system32\\ntdll.dll",
+                        "base": "0x7c000000",
+                        "size": "0x46a9",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x7c001000",
+                                "size": "0xca0",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x7c002000",
+                                "size": "0x16a9",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "ws2_32.dll",
+                        "path": "C:\\Windows\\system32\\ws2_32.dll",
+                        "base": "0x78c00000",
+                        "size": "0x448e",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x78c01000",
+                                "size": "0xf90",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x78c02000",
+                                "size": "0x148e",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "wininet.dll",
+                        "path": "C:\\Windows\\system32\\wininet.dll",
+                        "base": "0x7bc00000",
+                        "size": "0x34e7",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x7bc01000",
+                                "size": "0x2a0",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x7bc02000",
+                                "size": "0x4e7",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "winhttp.dll",
+                        "path": "C:\\Windows\\system32\\winhttp.dll",
+                        "base": "0x7ba00000",
+                        "size": "0x34df",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x7ba01000",
+                                "size": "0x270",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x7ba02000",
+                                "size": "0x4df",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "advapi32.dll",
+                        "path": "C:\\Windows\\system32\\advapi32.dll",
+                        "base": "0x78000000",
+                        "size": "0x43c0",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x78001000",
+                                "size": "0xb40",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x78002000",
+                                "size": "0x13c0",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "user32.dll",
+                        "path": "C:\\Windows\\system32\\user32.dll",
+                        "base": "0x77d10000",
+                        "size": "0x6063",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x77d11000",
+                                "size": "0x13b0",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x77d13000",
+                                "size": "0x2063",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "gdi32.dll",
+                        "path": "C:\\Windows\\system32\\gdi32.dll",
+                        "base": "0x77e10000",
+                        "size": "0x3651",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x77e11000",
+                                "size": "0x420",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x77e12000",
+                                "size": "0x651",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "msvcrt.dll",
+                        "path": "C:\\Windows\\system32\\msvcrt.dll",
+                        "base": "0x77f10000",
+                        "size": "0x601a",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x77f11000",
+                                "size": "0x1750",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x77f13000",
+                                "size": "0x201a",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "dnsapi.dll",
+                        "path": "C:\\Windows\\system32\\dnsapi.dll",
+                        "base": "0x78f10000",
+                        "size": "0x306d",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x78f11000",
+                                "size": "0x30",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x78f12000",
+                                "size": "0x6d",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "shlwapi.dll",
+                        "path": "C:\\Windows\\system32\\shlwapi.dll",
+                        "base": "0x67000000",
+                        "size": "0x348f",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x67001000",
+                                "size": "0x2d0",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x67002000",
+                                "size": "0x48f",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "advpack.dll",
+                        "path": "C:\\Windows\\system32\\advpack.dll",
+                        "base": "0x68f00000",
+                        "size": "0x306e",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x68f01000",
+                                "size": "0x30",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x68f02000",
+                                "size": "0x6e",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "shell32.dll",
+                        "path": "C:\\Windows\\system32\\shell32.dll",
+                        "base": "0x69000000",
+                        "size": "0x8ce7",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x69001000",
+                                "size": "0x2c30",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x69004000",
+                                "size": "0x3ce7",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "WTSAPI32.dll",
+                        "path": "C:\\Windows\\system32\\WTSAPI32.dll",
+                        "base": "0x63000000",
+                        "size": "0x30da",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x63001000",
+                                "size": "0x60",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x63002000",
+                                "size": "0xda",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "CRYPT32.dll",
+                        "path": "C:\\Windows\\system32\\CRYPT32.dll",
+                        "base": "0x58000000",
+                        "size": "0x308c",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x58001000",
+                                "size": "0x30",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x58002000",
+                                "size": "0x8c",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "mscoree.dll",
+                        "path": "C:\\Windows\\system32\\mscoree.dll",
+                        "base": "0x53000000",
+                        "size": "0x307d",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x53001000",
+                                "size": "0x30",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x53002000",
+                                "size": "0x7d",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "sfc_os.dll",
+                        "path": "C:\\Windows\\system32\\sfc_os.dll",
+                        "base": "0x5fe00000",
+                        "size": "0x311e",
+                        "segments": [
+                            {
+                                "name": ".text",
+                                "address": "0x5fe01000",
+                                "size": "0x80",
+                                "prot": "r-x"
+                            },
+                            {
+                                "name": ".edata",
+                                "address": "0x5fe02000",
+                                "size": "0x11e",
+                                "prot": "r--"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "kernelbase.dll",
+                        "path": "C:\\Windows\\system32\\kernelbase.dll",
+                        "base": "0x6f000000",
+                        "size": "0x1000",
+                        "segments": []
+                    }
+                ]
+            }
+        }
+    ]
+}

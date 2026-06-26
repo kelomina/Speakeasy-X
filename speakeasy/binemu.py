@@ -688,10 +688,6 @@ class BinaryEmulator(MemoryManager, ABC):
         """
         Read a string from emulated memory
         """
-        char = b"\xff"
-        string = b""
-        i = 0
-
         if width == 1:
             decode = "utf-8"
         elif width == 2:
@@ -699,32 +695,92 @@ class BinaryEmulator(MemoryManager, ABC):
         else:
             raise ValueError("Invalid string encoding")
 
-        while int.from_bytes(char, "little") != 0:
-            if max_chars and i >= max_chars:
-                break
-            char = self.mem_read(address, width)
+        # 分块读取以避免逐字符调用 mem_read 造成的 O(n^2) 拼接开销
+        terminator = b"\x00" * width
+        chunk_size = 256
+        buf = bytearray()  # extend 为 O(1) 均摊
+        offset = 0
+        done = False
 
-            string += char
-            address += width
-            i += 1
+        while not done:
+            # 受 max_chars 限制时，本次最多可读取的字节数
+            if max_chars:
+                chars_remaining = max_chars - (len(buf) // width)
+                if chars_remaining <= 0:
+                    break
+                read_size = min(chunk_size, chars_remaining * width)
+            else:
+                read_size = chunk_size
+
+            # 一次读取整块内存
+            chunk = self.mem_read(address + offset, read_size)
+            if not chunk:
+                break
+
+            # 在块内查找终止符，需保证位于 width 边界上
+            null_pos = -1
+            search_start = 0
+            while search_start < len(chunk):
+                pos = chunk.find(terminator, search_start)
+                if pos == -1:
+                    break
+                if pos % width == 0:
+                    null_pos = pos
+                    break
+                search_start = pos + 1
+
+            if null_pos != -1:
+                buf.extend(chunk[:null_pos])
+                done = True
+            else:
+                buf.extend(chunk)
+                offset += len(chunk)
+                # 读取不足一块说明已到达可读内存末尾
+                if len(chunk) < read_size:
+                    done = True
 
         try:
-            dec = string.decode(decode, "ignore").replace("\x00", "")
+            dec = buf.decode(decode, "ignore").replace("\x00", "")
         except Exception:
-            dec = string.replace(b"\x00", b"")  # type: ignore[assignment]  # fallback returns bytes if decode fails
+            dec = bytes(buf).replace(b"\x00", b"")  # type: ignore[assignment]  # fallback returns bytes if decode fails
         return dec
 
     def mem_string_len(self, address, width=1):
         """
         Get the length of a string from emulated memory
         """
-        slen = -1
-        char = b"\xff"
+        # 分块读取以避免逐字符调用 mem_read
+        terminator = b"\x00" * width
+        chunk_size = 256
+        slen = 0
+        offset = 0
 
-        while int.from_bytes(char, "little") != 0:
-            char = self.mem_read(address, width)
-            address += width
-            slen += 1
+        while True:
+            chunk = self.mem_read(address + offset, chunk_size)
+            if not chunk:
+                break
+
+            # 在块内查找终止符，需保证位于 width 边界上
+            null_pos = -1
+            search_start = 0
+            while search_start < len(chunk):
+                pos = chunk.find(terminator, search_start)
+                if pos == -1:
+                    break
+                if pos % width == 0:
+                    null_pos = pos
+                    break
+                search_start = pos + 1
+
+            if null_pos != -1:
+                slen += null_pos // width
+                break
+
+            slen += len(chunk) // width
+            offset += len(chunk)
+            if len(chunk) < chunk_size:
+                break
+
         return slen
 
     def get_ansi_strings(self, data, min_len=4):

@@ -1,5 +1,6 @@
 # Copyright (C) 2020 FireEye, Inc. All Rights Reserved.
 
+import bisect
 import logging
 import ntpath
 import os
@@ -78,6 +79,11 @@ class WindowsEmulator(BinaryEmulator):
         self.gdb_port: int | None = gdb_port
         self.arch: int = 0
         self.modules: list[Any] = []
+        # P0-5: 模块区间表（按 base 排序的 (base, end, mod)）+ 平行 base 列表用于 bisect，
+        # 以及名称字典 {name_lower: mod}，加速 get_mod_from_addr / get_mod_by_name
+        self._mod_intervals: list[tuple[int, int, Any]] = []
+        self._mod_bases: list[int] = []
+        self._mod_name_map: dict[str, Any] = {}
         self._setup_done: bool = False
         self.bootstrap_phase: BootstrapPhase = BootstrapPhase.INITIALIZED
         self.curr_run: Run | None = None
@@ -908,12 +914,52 @@ class WindowsEmulator(BinaryEmulator):
             if addr >= self.curr_mod.base and addr <= end:
                 return self.curr_mod
 
-        for m in self.modules:
-            base = m.base
-            size = m.image_size
-            if addr >= base and addr < base + size:
-                return m
+        # P0-5: 区间表若与 self.modules 不同步则重建，保证一致性
+        if len(self._mod_intervals) != len(self.modules):
+            self._rebuild_module_index()
+
+        bases = self._mod_bases
+        if not bases:
+            return None
+        # bisect_right 找到 base <= addr 的最后一个区间，O(log n)
+        idx = bisect.bisect_right(bases, addr) - 1
+        if idx < 0:
+            return None
+        base, end, mod = self._mod_intervals[idx]
+        if addr >= base and addr < end:
+            return mod
         return None
+
+    def _register_module_index(self, mod):
+        """P0-5: 将模块登记进区间表与名称字典（保持按 base 排序、首登记优先）"""
+        base = int(getattr(mod, "base", 0) or 0)
+        end = base + int(getattr(mod, "image_size", 0) or 0)
+        idx = bisect.bisect_left(self._mod_bases, base)
+        self._mod_intervals.insert(idx, (base, end, mod))
+        self._mod_bases.insert(idx, base)
+        # basename(去扩展名) 小写作为主键
+        try:
+            mod_name = ntpath.basename(getattr(mod, "emu_path", "") or "")
+        except Exception:
+            mod_name = ""
+        if mod_name:
+            base_name = os.path.splitext(mod_name)[0].lower()
+            if base_name and base_name not in self._mod_name_map:
+                self._mod_name_map[base_name] = mod
+        # mod.name 作为别名键（首登记优先，保留与原线性扫描一致的“先到先得”）
+        mod_name_field = getattr(mod, "name", None)
+        if mod_name_field:
+            name_key = mod_name_field.lower()
+            if name_key not in self._mod_name_map:
+                self._mod_name_map[name_key] = mod
+
+    def _rebuild_module_index(self):
+        """P0-5: 从 self.modules 全量重建区间表与名称字典"""
+        self._mod_intervals = []
+        self._mod_bases = []
+        self._mod_name_map = {}
+        for mod in self.modules:
+            self._register_module_index(mod)
 
     def _alloc_sentinel(self):
         addr = self._next_sentinel
@@ -1035,15 +1081,10 @@ class WindowsEmulator(BinaryEmulator):
         logger.info("PE import fixups at 0x%x: %d descriptor(s), %d new fixup(s)", base_addr, n_descriptors, n_fixups)
 
     def get_mod_by_name(self, name):
-        name_lower = name.lower()
-        for mod in self.modules:
-            mod_name = ntpath.basename(mod.emu_path)
-            base_name = os.path.splitext(mod_name)[0]
-            if base_name.lower() == name_lower:
-                return mod
-            if mod.name and mod.name.lower() == name_lower:
-                return mod
-        return None
+        # P0-5: 字典 O(1) 查找；区间表不同步时重建以保证一致性
+        if len(self._mod_intervals) != len(self.modules):
+            self._rebuild_module_index()
+        return self._mod_name_map.get(name.lower())
 
     def get_peb_modules(self):
         return [mod for mod in self.modules if mod.visible_in_peb]
@@ -1182,6 +1223,8 @@ class WindowsEmulator(BinaryEmulator):
                 self.profiler.strings["unicode"] = [u[1] for u in self.get_unicode_strings(raw)]
 
         self.modules.append(mod)
+        # P0-5: 同步维护模块区间表与名称字典
+        self._register_module_index(mod)
 
         if is_primary and not self.stack_base and image.stack_size:
             stack_size = self.config.stack_size or image.stack_size

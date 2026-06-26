@@ -4021,14 +4021,33 @@ class Kernel32(api.ApiHandler):
         """
         (hObject,) = argv
 
+        # 注册表句柄应由 RegCloseKey 关闭，此处按无效句柄处理
         reg_key = emu.reg_get_key(handle=hObject)
         if reg_key:
             emu.set_last_error(windefs.ERROR_INVALID_HANDLE)
             return 0
 
-        obj = self.get_object_from_handle(hObject)
-        if obj:
-            emu.dec_ref(obj)
+        closed = False
+
+        # 清理 file/pipe/file-mapping 句柄
+        fman = emu.get_file_manager()
+        if fman is not None:
+            if fman.file_handles.pop(hObject, None) is not None:
+                closed = True
+            elif fman.pipe_handles.pop(hObject, None) is not None:
+                closed = True
+            elif fman.file_maps.pop(hObject, None) is not None:
+                closed = True
+
+        # 清理 objman 句柄表并递减引用计数
+        om = getattr(emu, "om", None)
+        if om is not None:
+            obj = om.close_handle(hObject)
+            if obj is not None:
+                emu.dec_ref(obj)
+                closed = True
+
+        if closed:
             emu.set_last_error(windefs.ERROR_SUCCESS)
             return 1
 

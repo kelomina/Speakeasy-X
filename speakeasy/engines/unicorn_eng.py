@@ -62,6 +62,11 @@ class EmuEngine:
         self.emu = None
         self.mmap = None
         self._callbacks = {}
+        # P0-1: code hook 单分发器——所有 UC_HOOK_CODE 回调合并为单个原生
+        # hook，由 _dispatch_code_hooks 依次调用，避免每条指令多次 C→Python 回调
+        self._code_hooks: list = []
+        self._code_dispatch_id = None
+        self._code_dispatch_cb = None
 
         self.regs = {
             arch.X86_REG_EAX: u.UC_X86_REG_EAX,
@@ -221,6 +226,10 @@ class EmuEngine:
         if not hook_type:
             raise EmuEngineError("Invalid hook type")
 
+        # P0-1: UC_HOOK_CODE 走单分发器，避免每条指令触发多次 C→Python 回调
+        if hook_type == uc.UC_HOOK_CODE:
+            return self.add_code_hook(cb, begin=begin, end=end)
+
         handle = self.emu._uch  # type: ignore[union-attr]
 
         # The unicorn bindings have a default python wrapper. We want to use
@@ -231,8 +240,6 @@ class EmuEngine:
                 cb = ct.cast(UC_HOOK_INSN_IN_CB(cb), UC_HOOK_INSN_IN_CB)
             elif arg1 in (u.UC_X86_INS_SYSCALL, u.UC_X86_INS_SYSENTER):  # SYSCALL/SYSENTER
                 cb = ct.cast(UC_HOOK_INSN_SYSCALL_CB(cb), UC_HOOK_INSN_SYSCALL_CB)
-        elif hook_type == uc.UC_HOOK_CODE:
-            cb = ct.cast(UC_HOOK_CODE_CB(cb), UC_HOOK_CODE_CB)
         elif hook_type in (uc.UC_HOOK_MEM_READ, uc.UC_HOOK_MEM_WRITE):
             cb = ct.cast(UC_HOOK_MEM_ACCESS_CB(cb), UC_HOOK_MEM_ACCESS_CB)
         elif hook_type == uc.UC_HOOK_MEM_INVALID:
@@ -253,6 +260,40 @@ class EmuEngine:
         self._callbacks.update({hook_id.value: th})
 
         return hook_id.value
+
+    def add_code_hook(self, callback, begin=1, end=0):
+        """
+        P0-1: 将 code hook 回调加入列表，仅向 Unicorn 注册一个原生
+        UC_HOOK_CODE 分发器，由分发器依次调用所有回调，避免每条指令
+        触发多次 C→Python 回调。回调签名保持 (eng, addr, size, ctx)。
+        返回分发器句柄（所有 code hook 共享同一句柄）。
+        """
+        self._code_hooks.append((callback, begin, end))
+        if self._code_dispatch_id is None:
+            self._code_dispatch_cb = UC_HOOK_CODE_CB(self._dispatch_code_hooks)
+            ptr = ct.cast(self._code_dispatch_cb, ct.c_void_p)
+            rv = _uc.uc_hook_add(
+                self.emu._uch,  # type: ignore[union-attr]
+                ct.byref(hook_id),
+                uc.UC_HOOK_CODE,
+                ptr.value,
+                None,
+                1,
+                0,
+            )
+            if rv != uc.UC_ERR_OK:
+                raise uc.UcError(rv)
+            self._code_dispatch_id = hook_id.value
+            self._callbacks[self._code_dispatch_id] = ToggleableHook(self._code_dispatch_cb)
+        return self._code_dispatch_id
+
+    def _dispatch_code_hooks(self, eng, addr, size, ctx=None):
+        """P0-1: 单分发器——按注册顺序依次调用所有 code hook（含范围过滤）"""
+        for cb, begin, end in self._code_hooks:
+            # begin > end（如默认 begin=1, end=0）表示作用于全部地址
+            if begin <= end and (addr < begin or addr > end):
+                continue
+            cb(eng, addr, size, ctx)
 
     def hook_enable(self, hook_handle):
         """
@@ -282,3 +323,7 @@ class EmuEngine:
             except Exception:
                 pass
         self._callbacks.clear()
+        # P0-1: 重置 code hook 单分发器状态
+        self._code_hooks = []
+        self._code_dispatch_id = None
+        self._code_dispatch_cb = None

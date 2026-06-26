@@ -1,0 +1,46 @@
+{
+    "cli_help_time": {
+        "min": 1.076597,
+        "avg": 1.204039,
+        "unit": "seconds",
+        "samples": [1.403623, 1.131898, 1.076597],
+        "note": "speakeasy --help 启动时间基线（P1-22/P1-23 优化目标）"
+    },
+    "linear_scan_1000": {
+        "time_per_op": 62.41225,
+        "unit": "microseconds",
+        "elements": 1000,
+        "note": "通用基线：1000 元素列表线性扫描（查找最后一个，O(n)）"
+    },
+    "bisect_search_1000": {
+        "time_per_op": 0.26069,
+        "unit": "microseconds",
+        "elements": 1000,
+        "note": "通用基线：1000 元素 bisect 查找（O(log n)）"
+    },
+    "hotpath_memmgr_get_address_map": {
+        "worst_us_per_op": 103.81641,
+        "best_us_per_op": 0.17762,
+        "unit": "microseconds",
+        "elements": 1000,
+        "note": "MemoryManager.get_address_map 线性扫描基线；最坏情况查找最后一个映射，最好情况查找第一个"
+    },
+    "hotpath_objman_get_object_from_handle": {
+        "worst_us_per_op": 0.10162,
+        "unit": "microseconds",
+        "elements": 1000,
+        "note": "ObjectManager.get_object_from_handle 线性扫描基线（每对象单 handle，最坏情况）"
+    },
+    "hotpath_struct_getattribute": {
+        "last_field_us_per_op": 0.48158,
+        "first_field_us_per_op": 0.50855,
+        "unit": "microseconds",
+        "note": "EmuStruct.__getattribute__ 字段访问基线（5 字段结构体）"
+    },
+    "timestamp": "2026-06-26T00:00:00",
+    "environment": {
+        "python": "speakeasy -m",
+        "os": "windows",
+        "cwd": "e:\\Project\\python\\Speakeasy-X"
+    }
+}

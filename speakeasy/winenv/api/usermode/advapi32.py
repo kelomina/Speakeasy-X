@@ -285,13 +285,22 @@ class AdvApi32(api.ApiHandler):
         """
 
         (hKey,) = argv
-        rv = windefs.ERROR_SUCCESS
 
         key = self.reg_get_key(hKey)
         if not key:
-            rv = windefs.ERROR_INVALID_HANDLE
+            return windefs.ERROR_INVALID_HANDLE
 
-        return rv
+        # 预定义根键（>= 0x80000000）按 Windows 语义不真正关闭
+        if hKey < 0x80000000:
+            regman = getattr(emu, "regman", None)
+            if regman is not None:
+                regman.reg_handles.pop(hKey, None)
+            # 同步从 objman 反向字典移除（若存在）
+            om = getattr(emu, "om", None)
+            if om is not None:
+                om.close_handle(hKey)
+
+        return windefs.ERROR_SUCCESS
 
     @apihook("RegEnumKey", argc=4, conv=_arch.CALL_CONV_STDCALL)
     def RegEnumKey(self, emu, argv, ctx: api.ApiContext = None):

@@ -37,15 +37,29 @@ class PseudocodeRenderer:
         self.engine.detail = True
 
     def render_instruction(self, addr: int, size: int) -> str | None:
-        record = self.render_instruction_record(addr, size)
+        # 即时反汇编入口（需要立即得到结果时使用），保持原行为
+        record = self._render_record_eager(addr, size)
         if record is None:
             return None
         return self.format_instruction_record(record)
 
     def render_instruction_record(self, addr: int, size: int) -> dict[str, Any] | None:
+        # P0-10: 保留即时反汇编以维持公共 API 契约（nop/被过滤指令返回 None，
+        # 其余返回完整记录）。批量反汇编基础设施 (_materialize_pending/_disasm_batch)
+        # 已就绪，待 profiler 改为存储 (addr, size) 占位记录后即可激活延迟批量路径。
+        return self._render_record_eager(addr, size)
+
+    def _render_record_eager(self, addr: int, size: int) -> dict[str, Any] | None:
+        """即时反汇编单条指令并构建完整记录（用于 render_instruction 等立即场景）"""
         try:
             insn = next(self.engine.disasm(self.emu.mem_read(addr, size), addr, count=1))
         except Exception:
+            return None
+        return self._build_record_from_insn(insn, addr, size)
+
+    def _build_record_from_insn(self, insn, addr: int, size: int) -> dict[str, Any] | None:
+        """由已反汇编的 insn 构建完整记录（nop/被过滤指令返回 None）"""
+        if insn is None:
             return None
         if insn.mnemonic == "nop":
             return None
@@ -110,6 +124,8 @@ class PseudocodeRenderer:
         return line
 
     def compact_instruction_records(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        # P0-10: 仿真结束后批量反汇编占位记录，替换为完整记录（语义与逐条反汇编一致）
+        records = self._materialize_pending(records)
         records = self._prune_noise_records(records)
         if not self.enable_heuristics:
             return records
@@ -139,6 +155,67 @@ class PseudocodeRenderer:
         compacted = self._fold_repeated_normalized_windows(compacted)
         compacted = self._fold_repeated_while_chains(compacted)
         return self._fold_repeated_scalar_records(compacted)
+
+    def _materialize_pending(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """P0-10: 将占位记录批量反汇编为完整记录；无占位记录时直接返回（快速路径）"""
+        has_pending = any(isinstance(r, dict) and r.get("_pending") for r in records)
+        if not has_pending:
+            return records
+        pending = [
+            (int(r["_addr"]), int(r["_size"]))
+            for r in records
+            if isinstance(r, dict) and r.get("_pending")
+        ]
+        addr_to_insn = self._disasm_batch(pending)
+        materialized: list[dict[str, Any]] = []
+        for r in records:
+            if not (isinstance(r, dict) and r.get("_pending")):
+                materialized.append(r)
+                continue
+            addr = int(r["_addr"])
+            size = int(r["_size"])
+            insn = addr_to_insn.get(addr)
+            if insn is None:
+                # 回退：单独反汇编该指令，保证与逐条反汇编结果一致
+                try:
+                    insn = next(self.engine.disasm(self.emu.mem_read(addr, size), addr, count=1))
+                except Exception:
+                    insn = None
+            record = self._build_record_from_insn(insn, addr, size)
+            if record is not None:
+                materialized.append(record)
+        return materialized
+
+    def _disasm_batch(self, inst_records: list[tuple[int, int]]) -> dict[int, Any]:
+        """
+        P0-10: 批量反汇编——合并连续/重叠的地址区间，每段一次 mem_read 大块读取，
+        再一次性 capstone disasm，返回 {addr: insn} 映射。非连续段分别处理。
+        """
+        addr_to_insn: dict[int, Any] = {}
+        if not inst_records:
+            return addr_to_insn
+        unique = sorted(set(inst_records), key=lambda r: r[0])
+        n = len(unique)
+        i = 0
+        while i < n:
+            start_addr, size = unique[i]
+            chunk_end = start_addr + max(size, 1)
+            j = i + 1
+            while j < n and unique[j][0] <= chunk_end:
+                chunk_end = max(chunk_end, unique[j][0] + max(unique[j][1], 1))
+                j += 1
+            chunk_size = chunk_end - start_addr
+            try:
+                data = self.emu.mem_read(start_addr, chunk_size)
+            except Exception:
+                data = b""
+            try:
+                for insn in self.engine.disasm(data, start_addr):
+                    addr_to_insn[insn.address] = insn
+            except Exception:
+                pass
+            i = j
+        return addr_to_insn
 
     def _resolve_operand(self, insn, operand) -> dict[str, Any]:
         if operand.type == x86_const.X86_OP_REG:

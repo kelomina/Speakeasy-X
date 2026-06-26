@@ -1,0 +1,433 @@
+{
+    "report_version": "3.0.0",
+    "emulation_total_runtime": 0.091,
+    "timestamp": 1782481718,
+    "entry_points": [
+        {
+            "ep_type": "entry_point",
+            "start_addr": "0x406000",
+            "ep_args": [
+                "0x26c20",
+                "0x26d00"
+            ],
+            "apihash": "38396a5c3091dea9e0c7b0096b0e72b92e93ea6052c15b344a73081e32561ac2",
+            "ret_val": "0x0",
+            "events": [
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198455
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.RtlInitUnicodeString",
+                    "args": [
+                        "0x12fffe4",
+                        "\\Device\\wdm_test"
+                    ]
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198466
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.RtlInitUnicodeString",
+                    "args": [
+                        "0x12fffdc",
+                        "\\DosDevices\\wdm_test"
+                    ]
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4210710
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.RtlInitUnicodeString",
+                    "args": [
+                        "0x12fff94",
+                        "IoCreateDeviceSecure"
+                    ]
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4210720
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.MmGetSystemRoutineAddress",
+                    "args": [
+                        "IoCreateDeviceSecure"
+                    ],
+                    "ret_val": "0xfeedf0a0"
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4210754
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.RtlInitUnicodeString",
+                    "args": [
+                        "0x12fff94",
+                        "IoValidateDeviceIoControlAccess"
+                    ]
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4210764
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.MmGetSystemRoutineAddress",
+                    "args": [
+                        "IoValidateDeviceIoControlAccess"
+                    ],
+                    "ret_val": "0xfeedf0a4"
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198539
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.IoCreateDeviceSecure",
+                    "args": [
+                        "0x26c20",
+                        "0x0",
+                        "\\Device\\wdm_test",
+                        "0x22",
+                        "0x100",
+                        "0x0",
+                        "0x4020d8",
+                        "0x0",
+                        "0x12fffec"
+                    ],
+                    "ret_val": "0x0"
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198585
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.IoCreateSymbolicLink",
+                    "args": [
+                        "\\DosDevices\\wdm_test",
+                        "\\Device\\wdm_test"
+                    ],
+                    "ret_val": "0x0"
+                }
+            ]
+        },
+        {
+            "ep_type": "irp_mj_create",
+            "start_addr": "0x4010fa",
+            "ep_args": [
+                "0x27000",
+                "0x26e30"
+            ],
+            "apihash": "d4d75b19f122f8a5e4a04949b28d1415d0bb7b81bf1b63486c5df999492fdf42",
+            "ret_val": "0x0",
+            "events": [
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198663
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.DbgPrint",
+                    "args": [
+                        "Inside IRP_MJ_CREATE handler"
+                    ],
+                    "ret_val": "0x1c"
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198683
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.IofCompleteRequest",
+                    "args": [
+                        "0x26e30",
+                        "0x0"
+                    ]
+                }
+            ]
+        },
+        {
+            "ep_type": "irp_mj_device_control",
+            "start_addr": "0x401152",
+            "ep_args": [
+                "0x27000",
+                "0x26ef0"
+            ],
+            "apihash": "d4d75b19f122f8a5e4a04949b28d1415d0bb7b81bf1b63486c5df999492fdf42",
+            "ret_val": "0x0",
+            "events": [
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198751
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.DbgPrint",
+                    "args": [
+                        "Inside IRP_MJ_DEVICE_CONTROL handler"
+                    ],
+                    "ret_val": "0x24"
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198771
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.IofCompleteRequest",
+                    "args": [
+                        "0x26ef0",
+                        "0x0"
+                    ]
+                }
+            ]
+        },
+        {
+            "ep_type": "irp_mj_read",
+            "start_addr": "0x401122",
+            "ep_args": [
+                "0x27000",
+                "0x2c000"
+            ],
+            "apihash": "d4d75b19f122f8a5e4a04949b28d1415d0bb7b81bf1b63486c5df999492fdf42",
+            "ret_val": "0xc00000bb",
+            "events": [
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198704
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.DbgPrint",
+                    "args": [
+                        "Inside default handler"
+                    ],
+                    "ret_val": "0x16"
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198729
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.IofCompleteRequest",
+                    "args": [
+                        "0x2c000",
+                        "0x0"
+                    ]
+                }
+            ]
+        },
+        {
+            "ep_type": "irp_mj_write",
+            "start_addr": "0x401122",
+            "ep_args": [
+                "0x27000",
+                "0x2c0c0"
+            ],
+            "apihash": "d4d75b19f122f8a5e4a04949b28d1415d0bb7b81bf1b63486c5df999492fdf42",
+            "ret_val": "0xc00000bb",
+            "events": [
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198704
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.DbgPrint",
+                    "args": [
+                        "Inside default handler"
+                    ],
+                    "ret_val": "0x16"
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198729
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.IofCompleteRequest",
+                    "args": [
+                        "0x2c0c0",
+                        "0x0"
+                    ]
+                }
+            ]
+        },
+        {
+            "ep_type": "irp_mj_close",
+            "start_addr": "0x4010d2",
+            "ep_args": [
+                "0x27000",
+                "0x2c180"
+            ],
+            "apihash": "d4d75b19f122f8a5e4a04949b28d1415d0bb7b81bf1b63486c5df999492fdf42",
+            "ret_val": "0x0",
+            "events": [
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198623
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.DbgPrint",
+                    "args": [
+                        "Inside IRP_MJ_CLOSE handler"
+                    ],
+                    "ret_val": "0x1b"
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198643
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.IofCompleteRequest",
+                    "args": [
+                        "0x2c180",
+                        "0x0"
+                    ]
+                }
+            ]
+        },
+        {
+            "ep_type": "irp_mj_cleanup",
+            "start_addr": "0x401122",
+            "ep_args": [
+                "0x27000",
+                "0x2c240"
+            ],
+            "apihash": "d4d75b19f122f8a5e4a04949b28d1415d0bb7b81bf1b63486c5df999492fdf42",
+            "ret_val": "0xc00000bb",
+            "events": [
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198704
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.DbgPrint",
+                    "args": [
+                        "Inside default handler"
+                    ],
+                    "ret_val": "0x16"
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198729
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.IofCompleteRequest",
+                    "args": [
+                        "0x2c240",
+                        "0x0"
+                    ]
+                }
+            ]
+        },
+        {
+            "ep_type": "driver_unload",
+            "start_addr": "0x40117a",
+            "ep_args": [
+                "0x26c20"
+            ],
+            "apihash": "c8b7352f391218ac6bb06fa15d9dccee2ec611c0ca94ede5243b9c0386068137",
+            "ret_val": "0x0",
+            "events": [
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198811
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.RtlInitUnicodeString",
+                    "args": [
+                        "0x12fffec",
+                        "\\DosDevices\\wdm_test"
+                    ]
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198821
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.IoDeleteSymbolicLink",
+                    "args": [
+                        "\\DosDevices\\wdm_test"
+                    ],
+                    "ret_val": "0x0"
+                },
+                {
+                    "pos": [
+                        0,
+                        0,
+                        1768,
+                        4198833
+                    ],
+                    "event": "api",
+                    "api_name": "ntoskrnl.IoDeleteDevice",
+                    "args": [
+                        "0x27000"
+                    ],
+                    "ret_val": "0x0"
+                }
+            ]
+        }
+    ]
+}

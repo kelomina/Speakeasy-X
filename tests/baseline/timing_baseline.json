@@ -1,0 +1,38 @@
+{
+  "argv_test_x64": {
+    "api_calls": 17,
+    "elapsed_seconds": 0.07353490000241436,
+    "entry_points": 1,
+    "sample": "argv_test_x64.exe.xz"
+  },
+  "argv_test_x86": {
+    "api_calls": 18,
+    "elapsed_seconds": 0.08482550000189804,
+    "entry_points": 1,
+    "sample": "argv_test_x86.exe.xz"
+  },
+  "dll_test_x86": {
+    "api_calls": 16,
+    "elapsed_seconds": 0.1310708999990311,
+    "entry_points": 3,
+    "sample": "dll_test_x86.dll.xz"
+  },
+  "file_access_test_x64": {
+    "api_calls": 29,
+    "elapsed_seconds": 0.11302789999899687,
+    "entry_points": 1,
+    "sample": "file_access_test_x64.exe.xz"
+  },
+  "seh_test_x86": {
+    "api_calls": 12,
+    "elapsed_seconds": 0.11736480000035954,
+    "entry_points": 1,
+    "sample": "seh_test_x86.exe.xz"
+  },
+  "wdm_test_x86": {
+    "api_calls": 23,
+    "elapsed_seconds": 0.09366829999999027,
+    "entry_points": 8,
+    "sample": "wdm_test_x86.sys.xz"
+  }
+}

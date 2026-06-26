@@ -1,0 +1,59 @@
+......................FFFFF............F....F...............ssssssssssss [ 56%]
+...............................................FF.......                 [100%]
+================================== FAILURES ===================================
+E   assert 2 == 0
+     +  where 2 = CompletedProcess(args=['C:\\Users\\Saika\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe', 'E:\\Project\\pytho...t open file 'E:\\\\Project\\\\python\\\\Speakeasy-X\\\\examples\\\\dbgview.py': [Errno 2] No such file or directory\n").returncode
+E:\Project\python\Speakeasy-X\tests\test_examples.py:40: assert 2 == 0
+E   FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Project\\python\\Speakeasy-X\\examples\\emu_dll.py'
+<frozen importlib._bootstrap_external>:950: FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Project\\python\\Speakeasy-X\\examples\\emu_dll.py'
+E   FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Project\\python\\Speakeasy-X\\examples\\emu_exe.py'
+<frozen importlib._bootstrap_external>:950: FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Project\\python\\Speakeasy-X\\examples\\emu_exe.py'
+E   assert 2 == 0
+     +  where 2 = CompletedProcess(args=['C:\\Users\\Saika\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe', 'E:\\Project\\pytho...pen file 'E:\\\\Project\\\\python\\\\Speakeasy-X\\\\examples\\\\upx_unpack.py': [Errno 2] No such file or directory\n").returncode
+E:\Project\python\Speakeasy-X\tests\test_examples.py:109: assert 2 == 0
+E   FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Project\\python\\Speakeasy-X\\examples\\usb_emu.py'
+<frozen importlib._bootstrap_external>:950: FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Project\\python\\Speakeasy-X\\examples\\usb_emu.py'
+E   speakeasy.errors.SpeakeasyError: Target file not found: E:\Project\python\Speakeasy-X\tests\capa-testfiles\Practical Malware Analysis Lab 10-03.sys_
+E:\Project\python\Speakeasy-X\speakeasy\speakeasy.py:255: speakeasy.errors.SpeakeasyError: Target file not found: E:\Project\python\Speakeasy-X\tests\capa-testfiles\Practical Malware Analysis Lab 10-03.sys_
+E   FileNotFoundError: [WinError 2] 系统找不到指定的文件。
+C:\Users\Saika\AppData\Local\Python\pythoncore-3.14-64\Lib\shutil.py:514: FileNotFoundError: [WinError 2] 系统找不到指定的文件。
+E   AssertionError: assert 1 == 7
+     +  where 1 = len(['Hello emulator\n'])
+     +  and   7 = len(['Hello emulator\n', 'First access violation\r\n', 'First nested access violation\r\n', 'Second nested access violation\r\n', 'After access violations\r\n', 'In finally\r\n', ...])
+------------------------------ Captured log call ------------------------------
+ERROR    speakeasy.windows.winemu:winemu.py:1635 0x401acb: module_entry: Caught error: Invalid memory mapping (UC_ERR_MAP)
+  summary: Invalid memory mapping (UC_ERR_MAP) at 0x401acb; from 73ef398b2fcd6aae6c0913cdd72bc3d9286b5de59d7cf501e67688a59957ea41+0x1acb; in emu.module.73ef398b2fcd6aae6c0913cdd72bc3d9286b5de59d7cf501e67688a59957ea41.0x400000 [0x400000-0x406fff]
+  instr: push ebp
+  regs: esp=0x012fff4c  ebp=0x012fff9c  eip=0x00401acb  esi=0x00007640  edi=0x00007600  eax=0x0000000f  ebx=0xffffffff  ecx=0x00402138  edx=0x01300000
+E:\Project\python\Speakeasy-X\tests\test_seh.py:29: AssertionError: assert 1 == 7
+E   AssertionError: assert 'Invalid memo... (UC_ERR_MAP)' == 'invalid_write'
+      
+      - invalid_write
+      + Invalid memory mapping (UC_ERR_MAP)
+------------------------------ Captured log call ------------------------------
+ERROR    speakeasy.windows.winemu:winemu.py:1635 0x40104f: module_entry: Caught error: invalid_write
+  summary: write of unmapped 0x0; from 73ef398b2fcd6aae6c0913cdd72bc3d9286b5de59d7cf501e67688a59957ea41+0x104f; nearest: emu.gdt.0x1000 [0x1000-0x1fff]
+  instr: mov dword ptr [0], 0x14
+  regs: esp=0x012fff60  ebp=0x012fff9c  eip=0x0040104f  esi=0x00007640  edi=0x00007600  eax=0x0000000f  ebx=0x00000000  ecx=0x00402138  edx=0x01300000
+ERROR    speakeasy.windows.winemu:winemu.py:1635 0x40104f: module_entry: Caught error: Invalid memory mapping (UC_ERR_MAP)
+  summary: Invalid memory mapping (UC_ERR_MAP) at 0x40104f; from 73ef398b2fcd6aae6c0913cdd72bc3d9286b5de59d7cf501e67688a59957ea41+0x104f; in emu.module.73ef398b2fcd6aae6c0913cdd72bc3d9286b5de59d7cf501e67688a59957ea41.0x400000 [0x400000-0x406fff]
+  instr: mov dword ptr [0], 0x14
+  regs: esp=0x012fff60  ebp=0x012fff9c  eip=0x0040104f  esi=0x00007640  edi=0x00007600  eax=0x0000000f  ebx=0x00000000  ecx=0x00402138  edx=0x01300000
+E:\Project\python\Speakeasy-X\tests\test_seh.py:51: AssertionError: assert 'Invalid memo... (UC_ERR_MAP)' == 'invalid_write'
+=========================== short test summary info ===========================
+FAILED tests/test_examples.py::test_dbgview_example_runs - assert 2 == 0
+ +  where 2 = CompletedProcess(args=['C:\\Users\\Saika\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe', 'E:\\Project\\pytho...t open file 'E:\\\\Project\\\\python\\\\Speakeasy-X\\\\examples\\\\dbgview.py': [Errno 2] No such file or directory\n").returncode
+FAILED tests/test_examples.py::test_emu_dll_example_exercises_hooks - FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Project\\python\\Speakeasy-X\\examples\\emu_dll.py'
+FAILED tests/test_examples.py::test_emu_exe_example_modifies_ntreadfile_buffer - FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Project\\python\\Speakeasy-X\\examples\\emu_exe.py'
+FAILED tests/test_examples.py::test_upx_unpack_example_runs_and_dumps_file - assert 2 == 0
+ +  where 2 = CompletedProcess(args=['C:\\Users\\Saika\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe', 'E:\\Project\\pytho...pen file 'E:\\\\Project\\\\python\\\\Speakeasy-X\\\\examples\\\\upx_unpack.py': [Errno 2] No such file or directory\n").returncode
+FAILED tests/test_examples.py::test_usb_emu_example_runs_and_emits_report - FileNotFoundError: [Errno 2] No such file or directory: 'E:\\Project\\python\\Speakeasy-X\\examples\\usb_emu.py'
+FAILED tests/test_kernel_bootstrap.py::test_kernel_import_data_allocation_uses_system_process_context - speakeasy.errors.SpeakeasyError: Target file not found: E:\Project\python\Speakeasy-X\tests\capa-testfiles\Practical Malware Analysis Lab 10-03.sys_
+FAILED tests/test_map_view_of_file.py::test_map_view_of_file_uses_readable_protections - FileNotFoundError: [WinError 2] 系统找不到指定的文件。
+FAILED tests/test_seh.py::test_seh_dispatch - AssertionError: assert 1 == 7
+ +  where 1 = len(['Hello emulator\n'])
+ +  and   7 = len(['Hello emulator\n', 'First access violation\r\n', 'First nested access violation\r\n', 'Second nested access violation\r\n', 'After access violations\r\n', 'In finally\r\n', ...])
+FAILED tests/test_seh.py::test_seh_without_dispatch - AssertionError: assert 'Invalid memo... (UC_ERR_MAP)' == 'invalid_write'
+  
+  - invalid_write
+  + Invalid memory mapping (UC_ERR_MAP)

@@ -510,9 +510,10 @@ class WinKernelEmulator(WindowsEmulator, IoManager):
 
         self.curr_run.ret_val = self.get_return_val()  # type: ignore[union-attr]
 
+        # 仅回读当前正在运行的 driver，避免对所有已加载驱动做 read_back
         for drv in self.drivers:
-            drv.read_back()
             if drv.pe == self.curr_mod:
+                drv.read_back()
                 self.next_driver_func(drv)
 
         # Dispatch the next run

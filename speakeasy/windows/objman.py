@@ -123,6 +123,10 @@ class KernelObject:
         tmp = KernelObject.curr_handle
         KernelObject.curr_handle += 4
         self.handles.append(tmp)
+        # 若 ObjectManager 已就绪，同步登记到反向字典以支持 O(1) 查找
+        om = getattr(self.emu, "om", None)
+        if om is not None:
+            om._handle_map[tmp] = self
         return tmp
 
 
@@ -849,6 +853,8 @@ class ObjectManager:
         self.emu = emu
         self.objects = {}
         self.symlinks = []
+        # 反向字典：handle -> object，用于 O(1) 句柄查找与清理
+        self._handle_map = {}
 
     def add_symlink(self, link, dev):
         self.symlinks.append((link, dev))
@@ -865,6 +871,9 @@ class ObjectManager:
         if not obj.id:
             obj.id = self.new_id()
         obj.ref_cnt += 1
+        # 对象可能已通过 KernelObject.get_handle 分配过句柄，同步登记到反向字典
+        for h in getattr(obj, "handles", []):
+            self._handle_map[h] = obj
         return obj
 
     def remove_object(self, obj):
@@ -878,6 +887,10 @@ class ObjectManager:
                 break
         if addr:
             self.objects.pop(addr)
+        # 同步清理反向字典中该对象的所有句柄
+        for h in list(getattr(obj, "handles", [])):
+            if self._handle_map.get(h) is obj:
+                self._handle_map.pop(h, None)
 
     def dec_ref(self, obj):
         """
@@ -893,6 +906,8 @@ class ObjectManager:
         tmp = KernelObject.curr_handle
         KernelObject.curr_handle += 4
         obj.handles.append(tmp)
+        # 同步写入反向字典，供 get_object_from_handle 做 O(1) 查找
+        self._handle_map[tmp] = obj
         return tmp
 
     def new_id(self):
@@ -925,6 +940,33 @@ class ObjectManager:
             return self.get_object_from_name(name, False)
 
     def get_object_from_handle(self, handle):
+        # O(1) 反向字典查找
+        obj = self._handle_map.get(handle)
+        if obj is not None:
+            return obj
+        # 回退：处理未登记的句柄（如初始化阶段分配的句柄）
         for a, o in self.objects.items():
             if handle in o.handles:
+                # 补登记，后续命中 O(1) 路径
+                self._handle_map[handle] = o
                 return o
+        return None
+
+    def close_handle(self, handle):
+        """
+        关闭句柄：从反向字典移除，并从对象句柄列表删除。
+        返回关联的对象（句柄不存在时返回 None，不抛异常）。
+        """
+        obj = self._handle_map.pop(handle, None)
+        if obj is None:
+            # 回退：句柄可能未登记到反向字典，扫描对象句柄列表
+            for a, o in self.objects.items():
+                if handle in getattr(o, "handles", []):
+                    obj = o
+                    break
+        if obj is not None:
+            handles = getattr(obj, "handles", None)
+            if handles is not None:
+                while handle in handles:
+                    handles.remove(handle)
+        return obj

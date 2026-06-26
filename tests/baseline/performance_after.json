@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-06-26T22:09:33",
+  "comparisons": [
+    {
+      "metric": "CLI --help 启动时间",
+      "baseline_avg": 1.204039,
+      "after_avg": 0.647,
+      "baseline_min": 1.076597,
+      "after_min": 0.6073,
+      "change_pct": -46.3,
+      "unit": "seconds"
+    },
+    {
+      "metric": "线性扫描 n=1000",
+      "baseline": 62.41225,
+      "after": 42.55,
+      "unit": "microseconds"
+    },
+    {
+      "metric": "bisect 查找 n=1000",
+      "baseline": 0.26069,
+      "after": 0.13,
+      "unit": "microseconds"
+    },
+    {
+      "metric": "memmgr.get_address_map",
+      "error": "No module named 'speakeasy'"
+    }
+  ]
+}

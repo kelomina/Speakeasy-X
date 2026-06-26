@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from itertools import groupby
-from operator import itemgetter
+import bisect
 from typing import TYPE_CHECKING, Any
 
 import speakeasy.common as common
@@ -75,6 +74,122 @@ class MemoryManager:
         self.block_size = 0
         self.block_offset = 0
         self.page_size = 0x1000
+        # P0-4: 维护按 base 排序的平行结构，支持 get_address_map 等二分查找 O(log n)
+        self._sorted_bases: list[int] = []          # self.maps 的 base 升序列表（与 _sorted_maps 平行）
+        self._sorted_maps: list[MemMap] = []         # self.maps 按 base 升序的副本
+        self._sorted_reserve_bases: list[int] = []   # self.mem_reserves 的 base 升序列表
+        self._sorted_reserve_maps: list[MemMap] = []  # self.mem_reserves 按 base 升序的副本
+        # P0-9: 空闲区间有序表，支持 get_valid_ranges 二分查找，替代页展开
+        self._free_ranges: list[list[int]] = []      # 每项 [base, size]，按 base 升序
+
+    # ---- P0-4: 排序结构维护 ----
+    def _rebuild_sorted_bases(self):
+        # 重建 maps 和 mem_reserves 按 base 升序的平行结构（删除后调用以保证一致性）
+        s_maps = sorted(self.maps, key=lambda m: m.base)
+        self._sorted_maps = s_maps
+        self._sorted_bases = [m.base for m in s_maps]
+        s_res = sorted(self.mem_reserves, key=lambda m: m.base)
+        self._sorted_reserve_maps = s_res
+        self._sorted_reserve_bases = [m.base for m in s_res]
+
+    def _sorted_insert(self, mm, bases, maps):
+        # 增量插入 MemMap 到按 base 升序的平行结构，O(log n) + O(n) 平移
+        idx = bisect.bisect_right(bases, mm.base)
+        bases.insert(idx, mm.base)
+        maps.insert(idx, mm)
+
+    def _sorted_remove(self, mm, bases, maps):
+        # 增量删除 MemMap，O(log n) + O(n) 平移
+        idx = bisect.bisect_left(bases, mm.base)
+        if idx < len(bases) and bases[idx] == mm.base and maps[idx] is mm:
+            bases.pop(idx)
+            maps.pop(idx)
+
+    # ---- P0-9: 空闲区间表维护 ----
+    # 注意：因 winemu 等处可能直接调用 emu_eng.mem_map（绕过本类），
+    # get_valid_ranges 每次会基于 emu_eng.mem_regions()+mem_reserves 重建 _free_ranges 以保证正确性；
+    # 以下增量方法在 map/unmap 时同步更新 _free_ranges，保持调用间隙的一致性。
+    def _rebuild_free_ranges(self):
+        # 从 emu_eng 已映射区间与 mem_reserves 计算空闲区间补集（按区间而非页展开，O(n log n)）
+        self._free_ranges = []
+        if self.emu_eng is None:
+            return
+        upper = 0xFFFFFFFFFFFFE000  # 空闲空间上界（覆盖 64 位高地址映射）
+        occupied = []
+        try:
+            for region in self.emu_eng.mem_regions():
+                # unicorn 返回 (begin, end, perms)，end 为包含，转 [begin, end+1)
+                occupied.append((region[0], region[1] + 1))
+        except Exception:
+            return
+        for res in self.mem_reserves:
+            occupied.append((res.base, res.base + res.size))
+        if not occupied:
+            self._free_ranges = [[0, upper]]
+            return
+        occupied.sort()
+        # 合并重叠/相邻的占用区间
+        merged = []
+        cur_start, cur_end = occupied[0]
+        for start, end in occupied[1:]:
+            if start <= cur_end:
+                if end > cur_end:
+                    cur_end = end
+            else:
+                merged.append((cur_start, cur_end))
+                cur_start, cur_end = start, end
+        merged.append((cur_start, cur_end))
+        # 计算补集（空闲区间），从 0 开始（地址 0 可用于 fakeout 映射）
+        free = []
+        cursor = 0
+        for start, end in merged:
+            if start > cursor:
+                free.append([cursor, start - cursor])
+            if end > cursor:
+                cursor = end
+        if cursor < upper:
+            free.append([cursor, upper - cursor])
+        self._free_ranges = free
+
+    def _consume_free_range(self, base, size):
+        # 从空闲区间表中移除/分割 [base, base+size)
+        free = self._free_ranges
+        if not free:
+            return
+        bases = [fr[0] for fr in free]
+        idx = bisect.bisect_right(bases, base)
+        if idx == 0:
+            return
+        i = idx - 1
+        fb, fs = free[i]
+        end = fb + fs
+        alloc_end = base + size
+        if base < fb or alloc_end > end:
+            return  # 跨区间或越界，跳过（下次 get_valid_ranges 会重建）
+        del free[i]
+        if base > fb:
+            free.insert(i, [fb, base - fb])
+        if alloc_end < end:
+            free.insert(i + (1 if base > fb else 0), [alloc_end, end - alloc_end])
+
+    def _restore_free_range(self, base, size):
+        # 将 [base, base+size) 加回空闲区间表并合并相邻区间
+        free = self._free_ranges
+        if not free:
+            return
+        end = base + size
+        bases = [fr[0] for fr in free]
+        idx = bisect.bisect_left(bases, base)
+        merged_end = end
+        # 合并后继相邻区间
+        if idx < len(free) and free[idx][0] == end:
+            merged_end = free[idx][0] + free[idx][1]
+            del free[idx]
+        # 合并前驱相邻区间
+        if idx > 0 and free[idx - 1][0] + free[idx - 1][1] == base:
+            free[idx - 1][1] = merged_end - free[idx - 1][0]
+            return
+        free.insert(idx, [base, merged_end - base])
 
     def _hook_mem_map_dispatch(self, mm):
         hl = self.hooks.get(common.HOOK_MEM_MAP, [])
@@ -102,6 +217,7 @@ class MemoryManager:
                     self.block_base, self.block_size = block
 
                     self.emu_eng.mem_map(self.block_base, self.block_size)  # type: ignore[union-attr]
+                    self._consume_free_range(self.block_base, self.block_size)
                     self.block_offset = 0
                     addr = self.block_base + self.block_offset
 
@@ -111,6 +227,7 @@ class MemoryManager:
                 mm = MemMap(base, size, tag, perms, flags, self.block_base, self.block_size, shared, process)
 
                 self.maps.append(mm)
+                self._sorted_insert(mm, self._sorted_bases, self._sorted_maps)
                 self._hook_mem_map_dispatch(mm)
                 return base
 
@@ -122,7 +239,9 @@ class MemoryManager:
             block_size = size
         mm = MemMap(base, size, tag, perms, flags, base, block_size, shared, process)
         self.emu_eng.mem_map(base, size, perms=perms)  # type: ignore[union-attr]
+        self._consume_free_range(base, size)
         self.maps.append(mm)
+        self._sorted_insert(mm, self._sorted_bases, self._sorted_maps)
         self._hook_mem_map_dispatch(mm)
         return base
 
@@ -144,6 +263,8 @@ class MemoryManager:
                 self.block_base = 0
                 self.mem_unmap(mm.block_base, mm.block_size)
                 [self.maps.remove(mm) for mm in ml]  # type: ignore[func-returns-value]  # list comp used for side effect
+                # 批量删除后重建排序结构以保持不变量
+                self._rebuild_sorted_bases()
 
     def mem_remap(self, frm, to):
         """
@@ -181,6 +302,7 @@ class MemoryManager:
         Free a block of emulated memory
         """
         self.emu_eng.mem_unmap(base, size)  # type: ignore[union-attr]
+        self._restore_free_range(base, size)
 
     def mem_write(self, addr, data):
         """
@@ -205,22 +327,39 @@ class MemoryManager:
         Remove an entire memory region that may not have blocks allocated within it
         """
         self.emu_eng.mem_unmap(base, size)  # type: ignore[union-attr]
+        self._restore_free_range(base, size)
 
     def get_address_map(self, address):
         """
         Get the "MemMap" object associated with a specific address
         """
-        for m in self.maps:
-            if m.base <= address <= (m.base + m.size) - 1:
-                return m
+        # P0-4: 用 bisect 在按 base 升序的平行结构中二分查找，O(log n)
+        bases = self._sorted_bases
+        if not bases:
+            return None
+        idx = bisect.bisect_right(bases, address)
+        if idx == 0:
+            return None
+        m = self._sorted_maps[idx - 1]
+        if m.base <= address <= (m.base + m.size) - 1:
+            return m
+        return None
 
     def get_reserve_map(self, address):
         """
         Get the "MemMap" object that was only reserved for a specific address
         """
-        for m in self.mem_reserves:
-            if m.base <= address <= (m.base + m.size) - 1:
-                return m
+        # P0-4: 对 mem_reserves 的排序结构二分查找，O(log n)
+        bases = self._sorted_reserve_bases
+        if not bases:
+            return None
+        idx = bisect.bisect_right(bases, address)
+        if idx == 0:
+            return None
+        m = self._sorted_reserve_maps[idx - 1]
+        if m.base <= address <= (m.base + m.size) - 1:
+            return m
+        return None
 
     def is_address_valid(self, address):
         """
@@ -236,9 +375,11 @@ class MemoryManager:
         """
         Get the tag for a supplied memory address
         """
-        for m in self.maps:
-            if address >= m.base and address <= (m.base + m.size) - 1:
-                return m.tag
+        # P0-4: 复用 get_address_map 的二分查找
+        m = self.get_address_map(address)
+        if m is not None:
+            return m.tag
+        return None
 
     def mem_reserve(self, size, base=None, perms=None, tag=None, flags=0, shared=False):
         """
@@ -251,6 +392,9 @@ class MemoryManager:
         mm = MemMap(base, size, tag, perms, flags, base, self.block_size, shared)
 
         self.mem_reserves.append(mm)
+        self._sorted_insert(mm, self._sorted_reserve_bases, self._sorted_reserve_maps)
+        # 预留区同样占用空闲地址空间
+        self._consume_free_range(base, size)
         return base
 
     def purge_memory(self):
@@ -275,6 +419,7 @@ class MemoryManager:
         for r in self.mem_reserves:
             if mapped_base == r.base:
                 self.mem_reserves.remove(r)
+                self._sorted_remove(r, self._sorted_reserve_bases, self._sorted_reserve_maps)
                 return self.mem_map(r.size, base=r.base, perms=r.prot, tag=r.tag)
         return None
 
@@ -289,11 +434,6 @@ class MemoryManager:
         Retrieve a valid address range that can satisfy the requested size.
         Optionally, a base address can be specified to test if it can be used
         """
-
-        def get_runs(i):
-            for k, g in groupby(enumerate(i), lambda ix: ix[0] - (ix[1] >> 12)):
-                yield tuple(map(itemgetter(1), g))
-
         page_size = self.page_size
 
         # mem_map needs to be page aligned
@@ -309,34 +449,29 @@ class MemoryManager:
         elif total % page_size:
             total += page_size - (total % page_size)
 
-        curr: list[int] = []
-        for m in self.get_mem_regions():
-            curr += range(m[0], m[1], page_size)
-
-        # Add reserved memory so we don't accidentally allocate it
-        for res in self.mem_reserves:
-            curr += range(res.base, (res.base + res.size), page_size)
-
-        curr = sorted(set(curr))
-
-        attempts = 9999
-        while attempts:
-            req = set(range(base, base + total, page_size))
-
-            diffs = sorted(req.difference(curr))
-
-            if len(diffs) == len(req):
-                break
-
-            if not attempts % 10:
-                base += page_size * 1000
-            else:
-                base += total
-            attempts -= 1
-
-        if attempts == 0:
+        # P0-9: 基于空闲区间表二分查找，替代页展开。
+        # 每次按 emu_eng.mem_regions()+mem_reserves 重建 _free_ranges，
+        # 保证与引擎实际状态同步（含 winemu 等处直接 emu_eng.mem_map 的情况）。
+        self._rebuild_free_ranges()
+        free = self._free_ranges
+        if not free:
             raise Exception("Failed to allocate emulator memory")
 
-        a = [r for r in get_runs(diffs)][0]
+        free_bases = [fr[0] for fr in free]
+        idx = bisect.bisect_right(free_bases, base)
 
-        return (min(a), total)
+        # 1) base 落入某空闲区间且该区间足够容纳 total，直接使用 base
+        if idx > 0:
+            fb, fs = free[idx - 1]
+            if fb <= base and fb + fs >= base + total:
+                return (base, total)
+
+        # 2) 否则从 base 之后第一个空闲区间起，找首个能容纳 total 的区间
+        i = idx
+        while i < len(free):
+            fb, fs = free[i]
+            if fs >= total:
+                return (fb, total)
+            i += 1
+
+        raise Exception("Failed to allocate emulator memory")

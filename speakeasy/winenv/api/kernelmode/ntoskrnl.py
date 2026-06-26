@@ -119,8 +119,14 @@ class Ntoskrnl(api.ApiHandler):
         );
         """
         rv = ddk.STATUS_SUCCESS
+        (Handle,) = argv
 
-        # For now, just leave the handle open so we can reference it later
+        # 清理 objman 句柄表，避免长样本运行时句柄只增不减
+        om = getattr(emu, "om", None)
+        if om is not None:
+            obj = om.close_handle(Handle)
+            if obj is not None:
+                emu.dec_ref(obj)
         return rv
 
     @apihook("DbgPrint", argc=_arch.VAR_ARGS, conv=_arch.CALL_CONV_CDECL)
