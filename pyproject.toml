@@ -27,6 +27,9 @@ dependencies = [
     "pycryptodome",
     "pydantic>=2.0",
     "rich",
+    "scikit-learn>=1.0.0",
+    "numpy>=1.20.0",
+    "joblib",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +39,11 @@ dev = [
     "mypy",
 ]
 gdb = ["udbserver>=0.2.1"]
+ml = [
+    "scikit-learn>=1.0.0",
+    "numpy>=1.20.0",
+    "joblib",
+]
 
 [project.urls]
 Homepage = "https://github.com/kelomina/Speakeasy-X"
@@ -44,12 +52,14 @@ Issues = "https://github.com/kelomina/Speakeasy-X/issues"
 
 [project.scripts]
 speakeasy = "speakeasy.cli:main"
+speakeasy-ml = "ml_engine.cli:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "speakeasy.version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["speakeasy*", "ml_engine*"]
 
 [tool.setuptools.package-data]
 speakeasy = [

@@ -1,4 +1,3 @@
-```
 # Logs and temp files
 *.log
 *.tmp
@@ -15,8 +14,17 @@
 plan/
 reports/
 speakeasy_emulator.egg-info/
+Speakeasy_X.egg-info/
 __pycache__/
 
-# Original rules preserved
-*.log
-```
+# Sample data (too large for git)
+data/
+
+# ML engine - old models (only keep flash_v3 + pro_v1)
+ml_engine/models/flash_v1/
+ml_engine/models/flash_v2/
+
+# ML engine - runtime artifacts
+ml_engine/pro_reports/
+ml_engine/validation_results/
+ml_engine/debug_report.json
