@@ -239,6 +239,27 @@ class Kernel32(api.ApiHandler):
 
         return None
 
+    def write_res_identifier(self, emu, cw, val):
+        """
+        Convert a resource identifier (int or str from PE metadata) into a value
+        suitable for passing to an emulated callback. Integer IDs are returned
+        directly (acting as MAKEINTRESOURCE). String names are written to newly
+        allocated memory and the pointer is returned.
+        """
+        if isinstance(val, int):
+            return val
+        if isinstance(val, str):
+            if cw == 2:
+                data = (val + "\x00").encode("utf-16-le")
+            else:
+                data = (val + "\x00").encode("utf-8")
+            size = (len(data) + 0xF) & ~0xF
+            addr = self.mem_alloc(size, tag="emu.res_id")
+            if addr:
+                self.mem_write(addr, data)
+                return addr
+        return 0
+
     @apihook("GetThreadLocale", argc=0)
     def GetThreadLocale(self, emu, argv, ctx: api.ApiContext = None):
         """
@@ -4044,7 +4065,10 @@ class Kernel32(api.ApiHandler):
         if om is not None:
             obj = om.close_handle(hObject)
             if obj is not None:
-                emu.dec_ref(obj)
+                # 仅当对象的最后一把句柄关闭时才 dec_ref，避免多句柄对象被
+                # 提前 remove_object 而使其余句柄悬空（use-after-free）。
+                if not getattr(obj, "handles", None):
+                    emu.dec_ref(obj)
                 closed = True
 
         if closed:
@@ -5231,6 +5255,121 @@ class Kernel32(api.ApiHandler):
         """
 
         return 0
+
+    @apihook("EnumResourceTypes", argc=3)
+    def EnumResourceTypes(self, emu, argv, ctx: api.ApiContext = None):
+        """
+        BOOL EnumResourceTypesW(
+            HMODULE           hModule,
+            ENUMRESTYPEPROCW  lpEnumFunc,
+            LPARAM            lParam
+        );
+
+        Enumerates resource types in the PE's resource directory. A callback run
+        is queued for each unique type so the emulated callback can drive further
+        resource enumeration (e.g. EnumResourceNamesW).
+        """
+        ctx = ctx or {}
+        cw = self.get_char_width(ctx)
+        hModule, lpEnumFunc, lParam = argv
+
+        if not lpEnumFunc:
+            emu.set_last_error(windefs.ERROR_INVALID_PARAMETER)
+            return 0
+
+        if hModule == 0:
+            pe = emu.modules[0] if emu.modules else None
+        else:
+            pe = emu.get_mod_from_addr(hModule)
+            if pe and hModule != pe.base:
+                pe = None
+
+        if not pe:
+            emu.set_last_error(windefs.ERROR_INVALID_PARAMETER)
+            return 0
+
+        pe_metadata = pe.get_pe_metadata()
+        if not pe_metadata or not pe_metadata.resources:
+            emu.set_last_error(windefs.ERROR_SUCCESS)
+            return 1
+
+        max_runs = getattr(emu, "max_runs", 100)
+        seen_types = set()
+        for res in pe_metadata.resources:
+            type_key = str(res.type_id)
+            if type_key in seen_types:
+                continue
+            seen_types.add(type_key)
+
+            lpType = self.write_res_identifier(emu, cw, res.type_id)
+            if lpType == 0:
+                continue
+
+            if len(emu.run_queue) < max_runs:
+                self.queue_run("enum_res_type", lpEnumFunc, [hModule, lpType, lParam])
+
+        emu.set_last_error(windefs.ERROR_SUCCESS)
+        return 1
+
+    @apihook("EnumResourceNames", argc=4)
+    def EnumResourceNames(self, emu, argv, ctx: api.ApiContext = None):
+        """
+        BOOL EnumResourceNamesW(
+            HMODULE            hModule,
+            LPCWSTR            lpType,
+            ENUMRESNAMEPROCW   lpEnumFunc,
+            LPARAM             lParam
+        );
+
+        Enumerates resource names for the given type. A callback run is queued
+        for each unique name so the emulated callback can locate and load the
+        resource (e.g. via FindResourceW/LoadResource).
+        """
+        ctx = ctx or {}
+        cw = self.get_char_width(ctx)
+        hModule, lpType, lpEnumFunc, lParam = argv
+
+        if not lpEnumFunc:
+            emu.set_last_error(windefs.ERROR_INVALID_PARAMETER)
+            return 0
+
+        if hModule == 0:
+            pe = emu.modules[0] if emu.modules else None
+        else:
+            pe = emu.get_mod_from_addr(hModule)
+            if pe and hModule != pe.base:
+                pe = None
+
+        if not pe:
+            emu.set_last_error(windefs.ERROR_INVALID_PARAMETER)
+            return 0
+
+        pe_metadata = pe.get_pe_metadata()
+        if not pe_metadata or not pe_metadata.resources:
+            emu.set_last_error(windefs.ERROR_SUCCESS)
+            return 1
+
+        target_type = self.normalize_res_identifier(emu, cw, lpType)
+
+        max_runs = getattr(emu, "max_runs", 100)
+        seen_names = set()
+        for res in pe_metadata.resources:
+            if str(res.type_id) != str(target_type):
+                continue
+            name_key = str(res.id)
+            if name_key in seen_names:
+                continue
+            seen_names.add(name_key)
+
+            lpName = self.write_res_identifier(emu, cw, res.id)
+            if lpName == 0:
+                continue
+
+            if len(emu.run_queue) < max_runs:
+                self.queue_run("enum_res_name", lpEnumFunc, [hModule, lpType, lpName, lParam])
+
+        emu.set_last_error(windefs.ERROR_SUCCESS)
+        return 1
 
     @apihook("GetCurrentDirectory", argc=2)
     def GetCurrentDirectory(self, emu, argv, ctx: api.ApiContext = None):

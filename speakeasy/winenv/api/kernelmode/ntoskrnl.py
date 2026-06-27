@@ -125,7 +125,10 @@ class Ntoskrnl(api.ApiHandler):
         om = getattr(emu, "om", None)
         if om is not None:
             obj = om.close_handle(Handle)
-            if obj is not None:
+            # 仅当对象的最后一把句柄关闭时才 dec_ref，否则多句柄对象（如被
+            # ZwOpenEvent/ObOpenObjectByPointer 多次打开）会因 ref_cnt 归零被
+            # 提前 remove_object，导致其余句柄沦为悬空引用。
+            if obj is not None and not getattr(obj, "handles", None):
                 emu.dec_ref(obj)
         return rv
 

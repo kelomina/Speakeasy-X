@@ -442,6 +442,9 @@ class Speakeasy:
             return
         if hasattr(self.emu, "emu_eng") and self.emu.emu_eng is not None:
             self.emu.emu_eng.close()
+        # 清理 artifact store 落盘的临时文件，避免泄漏
+        if hasattr(self.emu, "profiler") and self.emu.profiler is not None:
+            self.emu.profiler.artifact_store.cleanup()
 
     def call(self, addr: int, params=[]) -> None:
         """

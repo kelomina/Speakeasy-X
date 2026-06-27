@@ -410,5 +410,26 @@ class MLPipeline:
         pipeline.clusterer.method = clusterer_data['method']
         pipeline.clusterer.n_pca = clusterer_data.get('n_pca', 0)
 
+        # 读取 metadata.json，同步 vectorizer 特征名（修复维度不匹配 bug）
+        # 训练时保存的 vectorizer_features 是 scaler/classifier 实际期望的特征顺序，
+        # 必须覆盖当前代码构建的 feature_names，否则代码演进（如新增 dotnet 特征）
+        # 会导致 vectorizer 输出维度与 scaler 期望维度不一致，Pro 检测直接失败。
+        metadata_file = model_path / 'metadata.json'
+        if metadata_file.exists():
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+            vectorizer_features = metadata.get('vectorizer_features')
+            if vectorizer_features:
+                pipeline.vectorizer.feature_names = list(vectorizer_features)
+                # 校验维度与 classifier.scaler 一致，提前给出清晰错误信息
+                scaler = pipeline.classifier.scaler
+                expected = getattr(scaler, 'n_features_in_', None)
+                if expected is not None and expected != len(vectorizer_features):
+                    raise ValueError(
+                        f"模型维度不匹配: metadata.json 的 vectorizer_features 有 "
+                        f"{len(vectorizer_features)} 项，但 classifier.scaler 期望 "
+                        f"{expected} 维。模型目录: {model_dir}"
+                    )
+
         print(f"Pipeline已从 {model_dir} 加载")
         return pipeline

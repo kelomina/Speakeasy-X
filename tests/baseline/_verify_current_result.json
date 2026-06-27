@@ -1,0 +1,551 @@
+[
+  {
+    "sample": "argv_test_x86.exe.xz",
+    "sample_key": "argv_test_x86",
+    "status": "ok",
+    "elapsed": 0.0634907000057865,
+    "baseline_elapsed": 0.08482550000189804,
+    "counts_match": true,
+    "counts_diff": {},
+    "schema_match": false,
+    "schema_diff": {
+      "added": {
+        "entry_points[0].events[0].pos.pc": "int",
+        "entry_points[0].events[0].pos.pid": "int",
+        "entry_points[0].events[0].pos.tick": "int",
+        "entry_points[0].events[0].pos.tid": "int"
+      },
+      "removed": {
+        "entry_points[0].events[0].pos._list_len": 4
+      },
+      "type_changed": {
+        "entry_points[0].events[0].pos": {
+          "baseline": "list",
+          "current": "dict"
+        }
+      },
+      "list_len_changed": {}
+    },
+    "current_counts": {
+      "entry_points": 1,
+      "api_calls": 18,
+      "file_ops": 0,
+      "registry_ops": 0,
+      "network_ops": 0,
+      "mem_alloc_events": 0,
+      "mem_write_events": 0,
+      "mem_read_events": 0,
+      "mem_protect_events": 0,
+      "mem_free_events": 0,
+      "process_create_events": 0,
+      "module_load_events": 0,
+      "thread_create_events": 0,
+      "thread_inject_events": 0,
+      "exception_events": 0,
+      "strings_static_ansi": 0,
+      "strings_static_unicode": 0,
+      "strings_in_memory_ansi": 0,
+      "strings_in_memory_unicode": 0,
+      "memory_regions": 121,
+      "loaded_modules": 23,
+      "dropped_files": 0,
+      "dynamic_code_segments": 0,
+      "errors_total": 0
+    },
+    "baseline_counts": {
+      "api_calls": 18,
+      "dropped_files": 0,
+      "dynamic_code_segments": 0,
+      "elapsed_seconds": 0.08482550000189804,
+      "entry_points": 1,
+      "errors_total": 0,
+      "exception_events": 0,
+      "file_ops": 0,
+      "loaded_modules": 23,
+      "mem_alloc_events": 0,
+      "mem_free_events": 0,
+      "mem_protect_events": 0,
+      "mem_read_events": 0,
+      "mem_write_events": 0,
+      "memory_regions": 121,
+      "module_load_events": 0,
+      "network_ops": 0,
+      "process_create_events": 0,
+      "registry_ops": 0,
+      "sample": "argv_test_x86.exe.xz",
+      "strings_in_memory_ansi": 0,
+      "strings_in_memory_unicode": 0,
+      "strings_static_ansi": 0,
+      "strings_static_unicode": 0,
+      "thread_create_events": 0,
+      "thread_inject_events": 0
+    }
+  },
+  {
+    "sample": "argv_test_x64.exe.xz",
+    "sample_key": "argv_test_x64",
+    "status": "ok",
+    "elapsed": 0.05420600000070408,
+    "baseline_elapsed": 0.07353490000241436,
+    "counts_match": true,
+    "counts_diff": {},
+    "schema_match": false,
+    "schema_diff": {
+      "added": {
+        "entry_points[0].events[0].pos.pc": "int",
+        "entry_points[0].events[0].pos.pid": "int",
+        "entry_points[0].events[0].pos.tick": "int",
+        "entry_points[0].events[0].pos.tid": "int"
+      },
+      "removed": {
+        "entry_points[0].events[0].pos._list_len": 4
+      },
+      "type_changed": {
+        "entry_points[0].events[0].pos": {
+          "baseline": "list",
+          "current": "dict"
+        }
+      },
+      "list_len_changed": {}
+    },
+    "current_counts": {
+      "entry_points": 1,
+      "api_calls": 17,
+      "file_ops": 0,
+      "registry_ops": 0,
+      "network_ops": 0,
+      "mem_alloc_events": 0,
+      "mem_write_events": 0,
+      "mem_read_events": 0,
+      "mem_protect_events": 0,
+      "mem_free_events": 0,
+      "process_create_events": 0,
+      "module_load_events": 0,
+      "thread_create_events": 0,
+      "thread_inject_events": 0,
+      "exception_events": 0,
+      "strings_static_ansi": 0,
+      "strings_static_unicode": 0,
+      "strings_in_memory_ansi": 0,
+      "strings_in_memory_unicode": 0,
+      "memory_regions": 118,
+      "loaded_modules": 23,
+      "dropped_files": 0,
+      "dynamic_code_segments": 0,
+      "errors_total": 0
+    },
+    "baseline_counts": {
+      "api_calls": 17,
+      "dropped_files": 0,
+      "dynamic_code_segments": 0,
+      "elapsed_seconds": 0.07353490000241436,
+      "entry_points": 1,
+      "errors_total": 0,
+      "exception_events": 0,
+      "file_ops": 0,
+      "loaded_modules": 23,
+      "mem_alloc_events": 0,
+      "mem_free_events": 0,
+      "mem_protect_events": 0,
+      "mem_read_events": 0,
+      "mem_write_events": 0,
+      "memory_regions": 118,
+      "module_load_events": 0,
+      "network_ops": 0,
+      "process_create_events": 0,
+      "registry_ops": 0,
+      "sample": "argv_test_x64.exe.xz",
+      "strings_in_memory_ansi": 0,
+      "strings_in_memory_unicode": 0,
+      "strings_static_ansi": 0,
+      "strings_static_unicode": 0,
+      "thread_create_events": 0,
+      "thread_inject_events": 0
+    }
+  },
+  {
+    "sample": "dll_test_x86.dll.xz",
+    "sample_key": "dll_test_x86",
+    "status": "ok",
+    "elapsed": 0.0906807999999728,
+    "baseline_elapsed": 0.1310708999990311,
+    "counts_match": true,
+    "counts_diff": {},
+    "schema_match": false,
+    "schema_diff": {
+      "added": {
+        "entry_points[0].events[0].pos.pc": "int",
+        "entry_points[0].events[0].pos.pid": "int",
+        "entry_points[0].events[0].pos.tick": "int",
+        "entry_points[0].events[0].pos.tid": "int"
+      },
+      "removed": {
+        "entry_points[0].events[0].pos._list_len": 4
+      },
+      "type_changed": {
+        "entry_points[0].events[0].pos": {
+          "baseline": "list",
+          "current": "dict"
+        }
+      },
+      "list_len_changed": {}
+    },
+    "current_counts": {
+      "entry_points": 3,
+      "api_calls": 16,
+      "file_ops": 0,
+      "registry_ops": 0,
+      "network_ops": 0,
+      "mem_alloc_events": 0,
+      "mem_write_events": 0,
+      "mem_read_events": 0,
+      "mem_protect_events": 0,
+      "mem_free_events": 0,
+      "process_create_events": 0,
+      "module_load_events": 0,
+      "thread_create_events": 0,
+      "thread_inject_events": 0,
+      "exception_events": 0,
+      "strings_static_ansi": 0,
+      "strings_static_unicode": 0,
+      "strings_in_memory_ansi": 0,
+      "strings_in_memory_unicode": 0,
+      "memory_regions": 357,
+      "loaded_modules": 69,
+      "dropped_files": 0,
+      "dynamic_code_segments": 0,
+      "errors_total": 0
+    },
+    "baseline_counts": {
+      "api_calls": 16,
+      "dropped_files": 0,
+      "dynamic_code_segments": 0,
+      "elapsed_seconds": 0.1310708999990311,
+      "entry_points": 3,
+      "errors_total": 0,
+      "exception_events": 0,
+      "file_ops": 0,
+      "loaded_modules": 69,
+      "mem_alloc_events": 0,
+      "mem_free_events": 0,
+      "mem_protect_events": 0,
+      "mem_read_events": 0,
+      "mem_write_events": 0,
+      "memory_regions": 357,
+      "module_load_events": 0,
+      "network_ops": 0,
+      "process_create_events": 0,
+      "registry_ops": 0,
+      "sample": "dll_test_x86.dll.xz",
+      "strings_in_memory_ansi": 0,
+      "strings_in_memory_unicode": 0,
+      "strings_static_ansi": 0,
+      "strings_static_unicode": 0,
+      "thread_create_events": 0,
+      "thread_inject_events": 0
+    }
+  },
+  {
+    "sample": "seh_test_x86.exe.xz",
+    "sample_key": "seh_test_x86",
+    "status": "ok",
+    "elapsed": 0.08658940000168514,
+    "baseline_elapsed": 0.11736480000035954,
+    "counts_match": false,
+    "counts_diff": {
+      "api_calls": {
+        "baseline": 12,
+        "current": 29,
+        "delta": 17
+      },
+      "errors_total": {
+        "baseline": 1,
+        "current": 0,
+        "delta": -1
+      },
+      "exception_events": {
+        "baseline": 1,
+        "current": 3,
+        "delta": 2
+      },
+      "memory_regions": {
+        "baseline": 126,
+        "current": 133,
+        "delta": 7
+      }
+    },
+    "schema_match": false,
+    "schema_diff": {
+      "added": {
+        "entry_points[0].events[0].pos.pc": "int",
+        "entry_points[0].events[0].pos.pid": "int",
+        "entry_points[0].events[0].pos.tick": "int",
+        "entry_points[0].events[0].pos.tid": "int"
+      },
+      "removed": {
+        "entry_points[0].error": "dict",
+        "entry_points[0].error.address": "str",
+        "entry_points[0].error.address_region": "dict",
+        "entry_points[0].error.address_region.base": "str",
+        "entry_points[0].error.address_region.prot": "str",
+        "entry_points[0].error.address_region.size": "str",
+        "entry_points[0].error.address_region.tag": "str",
+        "entry_points[0].error.context_summary": "str",
+        "entry_points[0].error.instr": "str",
+        "entry_points[0].error.pc": "str",
+        "entry_points[0].error.pc_module": "str",
+        "entry_points[0].error.process_id": "int",
+        "entry_points[0].error.regs": "dict",
+        "entry_points[0].error.regs.eax": "str",
+        "entry_points[0].error.regs.ebp": "str",
+        "entry_points[0].error.regs.ebx": "str",
+        "entry_points[0].error.regs.ecx": "str",
+        "entry_points[0].error.regs.edi": "str",
+        "entry_points[0].error.regs.edx": "str",
+        "entry_points[0].error.regs.eip": "str",
+        "entry_points[0].error.regs.esi": "str",
+        "entry_points[0].error.regs.esp": "str",
+        "entry_points[0].error.stack": "list",
+        "entry_points[0].error.stack._list_len": 16,
+        "entry_points[0].error.thread_id": "int",
+        "entry_points[0].error.traceback": "str",
+        "entry_points[0].error.type": "str",
+        "entry_points[0].events[0].pos._list_len": 4
+      },
+      "type_changed": {
+        "entry_points[0].events[0].pos": {
+          "baseline": "list",
+          "current": "dict"
+        }
+      },
+      "list_len_changed": {
+        "entry_points[0].events._list_len": {
+          "baseline": 13,
+          "current": 32
+        },
+        "entry_points[0].memory.layout._list_len": {
+          "baseline": 126,
+          "current": 133
+        }
+      }
+    },
+    "current_counts": {
+      "entry_points": 1,
+      "api_calls": 29,
+      "file_ops": 0,
+      "registry_ops": 0,
+      "network_ops": 0,
+      "mem_alloc_events": 0,
+      "mem_write_events": 0,
+      "mem_read_events": 0,
+      "mem_protect_events": 0,
+      "mem_free_events": 0,
+      "process_create_events": 0,
+      "module_load_events": 0,
+      "thread_create_events": 0,
+      "thread_inject_events": 0,
+      "exception_events": 3,
+      "strings_static_ansi": 0,
+      "strings_static_unicode": 0,
+      "strings_in_memory_ansi": 0,
+      "strings_in_memory_unicode": 0,
+      "memory_regions": 133,
+      "loaded_modules": 23,
+      "dropped_files": 0,
+      "dynamic_code_segments": 0,
+      "errors_total": 0
+    },
+    "baseline_counts": {
+      "api_calls": 12,
+      "dropped_files": 0,
+      "dynamic_code_segments": 0,
+      "elapsed_seconds": 0.11736480000035954,
+      "entry_points": 1,
+      "errors_total": 1,
+      "exception_events": 1,
+      "file_ops": 0,
+      "loaded_modules": 23,
+      "mem_alloc_events": 0,
+      "mem_free_events": 0,
+      "mem_protect_events": 0,
+      "mem_read_events": 0,
+      "mem_write_events": 0,
+      "memory_regions": 126,
+      "module_load_events": 0,
+      "network_ops": 0,
+      "process_create_events": 0,
+      "registry_ops": 0,
+      "sample": "seh_test_x86.exe.xz",
+      "strings_in_memory_ansi": 0,
+      "strings_in_memory_unicode": 0,
+      "strings_static_ansi": 0,
+      "strings_static_unicode": 0,
+      "thread_create_events": 0,
+      "thread_inject_events": 0
+    }
+  },
+  {
+    "sample": "wdm_test_x86.sys.xz",
+    "sample_key": "wdm_test_x86",
+    "status": "ok",
+    "elapsed": 0.06027590000303462,
+    "baseline_elapsed": 0.09366829999999027,
+    "counts_match": true,
+    "counts_diff": {},
+    "schema_match": false,
+    "schema_diff": {
+      "added": {
+        "entry_points[0].events[0].pos.pc": "int",
+        "entry_points[0].events[0].pos.pid": "int",
+        "entry_points[0].events[0].pos.tick": "int",
+        "entry_points[0].events[0].pos.tid": "int"
+      },
+      "removed": {
+        "entry_points[0].events[0].pos._list_len": 4
+      },
+      "type_changed": {
+        "entry_points[0].events[0].pos": {
+          "baseline": "list",
+          "current": "dict"
+        }
+      },
+      "list_len_changed": {}
+    },
+    "current_counts": {
+      "entry_points": 8,
+      "api_calls": 23,
+      "file_ops": 0,
+      "registry_ops": 0,
+      "network_ops": 0,
+      "mem_alloc_events": 0,
+      "mem_write_events": 0,
+      "mem_read_events": 0,
+      "mem_protect_events": 0,
+      "mem_free_events": 0,
+      "process_create_events": 0,
+      "module_load_events": 0,
+      "thread_create_events": 0,
+      "thread_inject_events": 0,
+      "exception_events": 0,
+      "strings_static_ansi": 0,
+      "strings_static_unicode": 0,
+      "strings_in_memory_ansi": 0,
+      "strings_in_memory_unicode": 0,
+      "memory_regions": 0,
+      "loaded_modules": 0,
+      "dropped_files": 0,
+      "dynamic_code_segments": 0,
+      "errors_total": 0
+    },
+    "baseline_counts": {
+      "api_calls": 23,
+      "dropped_files": 0,
+      "dynamic_code_segments": 0,
+      "elapsed_seconds": 0.09366829999999027,
+      "entry_points": 8,
+      "errors_total": 0,
+      "exception_events": 0,
+      "file_ops": 0,
+      "loaded_modules": 0,
+      "mem_alloc_events": 0,
+      "mem_free_events": 0,
+      "mem_protect_events": 0,
+      "mem_read_events": 0,
+      "mem_write_events": 0,
+      "memory_regions": 0,
+      "module_load_events": 0,
+      "network_ops": 0,
+      "process_create_events": 0,
+      "registry_ops": 0,
+      "sample": "wdm_test_x86.sys.xz",
+      "strings_in_memory_ansi": 0,
+      "strings_in_memory_unicode": 0,
+      "strings_static_ansi": 0,
+      "strings_static_unicode": 0,
+      "thread_create_events": 0,
+      "thread_inject_events": 0
+    }
+  },
+  {
+    "sample": "file_access_test_x64.exe.xz",
+    "sample_key": "file_access_test_x64",
+    "status": "ok",
+    "elapsed": 0.057064599997829646,
+    "baseline_elapsed": 0.11302789999899687,
+    "counts_match": true,
+    "counts_diff": {},
+    "schema_match": false,
+    "schema_diff": {
+      "added": {
+        "entry_points[0].events[0].pos.pc": "int",
+        "entry_points[0].events[0].pos.pid": "int",
+        "entry_points[0].events[0].pos.tick": "int",
+        "entry_points[0].events[0].pos.tid": "int"
+      },
+      "removed": {
+        "entry_points[0].events[0].pos._list_len": 4
+      },
+      "type_changed": {
+        "entry_points[0].events[0].pos": {
+          "baseline": "list",
+          "current": "dict"
+        }
+      },
+      "list_len_changed": {}
+    },
+    "current_counts": {
+      "entry_points": 1,
+      "api_calls": 29,
+      "file_ops": 2,
+      "registry_ops": 0,
+      "network_ops": 0,
+      "mem_alloc_events": 0,
+      "mem_write_events": 0,
+      "mem_read_events": 0,
+      "mem_protect_events": 0,
+      "mem_free_events": 0,
+      "process_create_events": 0,
+      "module_load_events": 0,
+      "thread_create_events": 0,
+      "thread_inject_events": 0,
+      "exception_events": 0,
+      "strings_static_ansi": 0,
+      "strings_static_unicode": 0,
+      "strings_in_memory_ansi": 0,
+      "strings_in_memory_unicode": 0,
+      "memory_regions": 118,
+      "loaded_modules": 23,
+      "dropped_files": 0,
+      "dynamic_code_segments": 0,
+      "errors_total": 0
+    },
+    "baseline_counts": {
+      "api_calls": 29,
+      "dropped_files": 0,
+      "dynamic_code_segments": 0,
+      "elapsed_seconds": 0.11302789999899687,
+      "entry_points": 1,
+      "errors_total": 0,
+      "exception_events": 0,
+      "file_ops": 2,
+      "loaded_modules": 23,
+      "mem_alloc_events": 0,
+      "mem_free_events": 0,
+      "mem_protect_events": 0,
+      "mem_read_events": 0,
+      "mem_write_events": 0,
+      "memory_regions": 118,
+      "module_load_events": 0,
+      "network_ops": 0,
+      "process_create_events": 0,
+      "registry_ops": 0,
+      "sample": "file_access_test_x64.exe.xz",
+      "strings_in_memory_ansi": 0,
+      "strings_in_memory_unicode": 0,
+      "strings_static_ansi": 0,
+      "strings_static_unicode": 0,
+      "thread_create_events": 0,
+      "thread_inject_events": 0
+    }
+  }
+]

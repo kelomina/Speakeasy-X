@@ -3,7 +3,11 @@ from speakeasy.profiler import Profiler, Run
 from speakeasy.profiler_events import (
     FILE_WRITE,
     REG_WRITE,
+    ApiEvent,
+    ApiEventSchema,
     FileWriteEvent,
+    NetDnsEvent,
+    NetHttpEvent,
     RegWriteValueEvent,
     TracePosition,
 )
@@ -990,3 +994,335 @@ def test_profiler_text_includes_function_block_header():
     text = profiler.get_pseudocode_text()
 
     assert "// function entry_point_0(thisObj, arg_2) -> retVal" in text
+
+
+# ---------------------------------------------------------------------------
+# P0-12/P0-13/P0-16 回归测试：DNS/HTTP 去重、ApiEvent dataclass、采样上限
+# ---------------------------------------------------------------------------
+
+
+def test_trace_position_namedtuple_defaults():
+    """TracePosition 改 NamedTuple 后字段访问和默认值正确。"""
+    pos = TracePosition(tick=1, tid=2, pid=3)
+    assert pos.tick == 1
+    assert pos.tid == 2
+    assert pos.pid == 3
+    assert pos.pc is None
+
+    pos2 = TracePosition(tick=1, tid=2, pid=3, pc=0x401000)
+    assert pos2.pc == 0x401000
+
+    # _asdict() 返回 dict，用于序列化
+    d = pos2._asdict()
+    assert d == {"tick": 1, "tid": 2, "pid": 3, "pc": 0x401000}
+
+
+def test_api_event_to_dict_matches_schema():
+    """ApiEvent.to_dict() 输出应与 ApiEventSchema 兼容。"""
+    pos = TracePosition(tick=10, tid=20, pid=30, pc=0x401000)
+    event = ApiEvent(
+        pos=pos,
+        api_name="kernel32.CreateFileA",
+        args=["0x100", "0x200"],
+        ret_val="0x300",
+    )
+
+    d = event.to_dict()
+    assert d["event"] == "api"
+    assert d["pos"] == {"tick": 10, "tid": 20, "pid": 30, "pc": 0x401000}
+    assert d["api_name"] == "kernel32.CreateFileA"
+    assert d["args"] == ["0x100", "0x200"]
+    assert d["ret_val"] == "0x300"
+
+    # Pydantic 应能验证 to_dict() 输出
+    schema = ApiEventSchema.model_validate(d)
+    assert schema.event == "api"
+    assert schema.api_name == "kernel32.CreateFileA"
+    assert schema.args == ["0x100", "0x200"]
+    assert schema.ret_val == "0x300"
+    assert schema.pos.tick == 10
+    assert schema.pos.pc == 0x401000
+
+
+def test_api_event_to_dict_with_none_ret_val():
+    """ApiEvent.to_dict() 应正确处理 ret_val=None。"""
+    pos = TracePosition(tick=0, tid=1, pid=1)
+    event = ApiEvent(pos=pos, api_name="ntdll.NtClose", args=[])
+
+    d = event.to_dict()
+    assert d["ret_val"] is None
+    assert d["args"] == []
+
+    schema = ApiEventSchema.model_validate(d)
+    assert schema.ret_val is None
+
+
+def test_api_event_roundtrip_json():
+    """ApiEvent 通过 to_dict -> Pydantic -> JSON -> Pydantic 往返一致。"""
+    pos = TracePosition(tick=42, tid=7, pid=11, pc=0xDEAD)
+    event = ApiEvent(
+        pos=pos,
+        api_name="kernel32.VirtualAlloc",
+        args=["0x0", "0x1000", "0x3000", "0x40"],
+        ret_val="0x5000",
+    )
+
+    d = event.to_dict()
+    schema = ApiEventSchema.model_validate(d)
+    json_str = schema.model_dump_json()
+    restored = ApiEventSchema.model_validate_json(json_str)
+
+    assert restored.api_name == event.api_name
+    assert restored.args == event.args
+    assert restored.ret_val == event.ret_val
+    assert restored.pos.tick == pos.tick
+    assert restored.pos.tid == pos.tid
+    assert restored.pos.pid == pos.pid
+    assert restored.pos.pc == pos.pc
+
+
+def test_dns_dedup_preserves_first_event():
+    """DNS 去重改 set 后应保留首次事件，丢弃重复事件。"""
+    profiler = Profiler()
+    run = Run()
+    pos1 = TracePosition(tick=1, tid=2, pid=3, pc=0x1000)
+    pos2 = TracePosition(tick=10, tid=2, pid=3, pc=0x2000)
+
+    profiler.record_dns_event(run, pos1, "example.com", ip="1.2.3.4")
+    profiler.record_dns_event(run, pos2, "example.com", ip="1.2.3.4")
+
+    assert len(run.events) == 1
+    event = run.events[0]
+    assert isinstance(event, NetDnsEvent)
+    assert event.query == "example.com"
+    assert event.response == "1.2.3.4"
+    # 应保留首次事件的 pos
+    assert event.pos.tick == 1
+
+
+def test_dns_dedup_with_empty_ip_normalizes():
+    """DNS 去重应将空 ip 标准化为 None，避免 ip="" 重复事件。"""
+    profiler = Profiler()
+    run = Run()
+    pos = TracePosition(tick=1, tid=2, pid=3, pc=0x1000)
+
+    # 第一次 ip=""，response 存为 None
+    profiler.record_dns_event(run, pos, "empty.com", ip="")
+    # 第二次 ip=""，应被去重
+    profiler.record_dns_event(run, pos, "empty.com", ip="")
+
+    assert len(run.events) == 1
+    event = run.events[0]
+    assert isinstance(event, NetDnsEvent)
+    assert event.response is None
+
+
+def test_dns_dedup_different_ip_not_merged():
+    """不同 ip 的相同 domain 不应被去重。"""
+    profiler = Profiler()
+    run = Run()
+    pos = TracePosition(tick=1, tid=2, pid=3, pc=0x1000)
+
+    profiler.record_dns_event(run, pos, "multi.com", ip="1.1.1.1")
+    profiler.record_dns_event(run, pos, "multi.com", ip="2.2.2.2")
+
+    assert len(run.events) == 2
+
+
+def test_http_dedup_preserves_first_event():
+    """HTTP 去重改 set 后应保留首次事件。"""
+    profiler = Profiler()
+    run = Run()
+    pos1 = TracePosition(tick=1, tid=2, pid=3, pc=0x1000)
+    pos2 = TracePosition(tick=10, tid=2, pid=3, pc=0x2000)
+
+    profiler.record_http_event(run, pos1, "evil.com", 80, body=b"first")
+    profiler.record_http_event(run, pos2, "evil.com", 80, body=b"second")
+
+    assert len(run.events) == 1
+    event = run.events[0]
+    assert isinstance(event, NetHttpEvent)
+    assert event.server == "evil.com"
+    assert event.port == 80
+    # 应保留首次事件的 pos
+    assert event.pos.tick == 1
+
+
+def test_http_dedup_no_artifact_leak():
+    """HTTP 去重时不应为重复事件创建 artifact（原代码会泄漏）。"""
+    profiler = Profiler()
+    run = Run()
+    pos = TracePosition(tick=1, tid=2, pid=3, pc=0x1000)
+
+    profiler.record_http_event(run, pos, "dup.com", 443, secure=True, body=b"data")
+    # 记录当前 artifact 数量
+    artifacts_after_first = len(profiler.artifact_store._artifacts)
+
+    # 重复事件
+    profiler.record_http_event(run, pos, "dup.com", 443, secure=True, body=b"duplicate")
+    artifacts_after_second = len(profiler.artifact_store._artifacts)
+
+    assert artifacts_after_first == artifacts_after_second, "重复 HTTP 事件泄漏了 artifact"
+    assert len(run.events) == 1
+
+
+def test_http_dedup_different_port_not_merged():
+    """不同端口的 HTTP 事件不应被去重。"""
+    profiler = Profiler()
+    run = Run()
+    pos = TracePosition(tick=1, tid=2, pid=3, pc=0x1000)
+
+    profiler.record_http_event(run, pos, "srv.com", 80)
+    profiler.record_http_event(run, pos, "srv.com", 443, secure=True)
+
+    assert len(run.events) == 2
+
+
+def test_record_instruction_sampling_respects_limit():
+    """record_instruction 超过上限后应启用采样。"""
+    from unittest.mock import patch
+
+    profiler = Profiler()
+    profiler.attach_emulator(FakeEmulator())
+    profiler.enable_pseudocode(enable_heuristics=True)
+    profiler.max_instruction_trace = 5  # 设置小上限便于测试
+
+    # 显式创建 renderer 并设置到 profiler 上，避免 get_pseudocode_renderer 返回 None
+    renderer = PseudocodeRenderer(FakeEmulator(), enable_heuristics=True)
+    profiler.pseudocode_renderer = renderer
+
+    run = Run()
+    run.start_addr = 0x401000
+    run.type = "entry_point"
+
+    # mock render_instruction_record 使其总是返回有效记录，避免依赖具体指令
+    def fake_render(addr, size):
+        return {"address": hex(addr), "pseudocode": "nop", "assembly": "nop", "context": [], "filtered": False}
+
+    with patch.object(renderer, "render_instruction_record", side_effect=fake_render):
+        # 记录 20 条指令
+        for i in range(20):
+            run.instr_cnt = i
+            profiler.record_instruction(run, 0x401000 + i, 1)
+
+    # 超过上限后采样，trace_len 应远小于实际指令数
+    # 上限 5，记录了 20 条指令，trace_len 应该在 5-15 之间（采样减慢但不阻止增长）
+    assert len(run.instruction_trace) < 20, "采样逻辑未生效，trace_len 等于实际指令数"
+    assert len(run.instruction_trace) >= 5, "采样不应在达到上限前丢弃记录"
+
+
+def test_record_instruction_below_limit_records_all():
+    """未超过上限时应记录所有指令。"""
+    from unittest.mock import patch
+
+    profiler = Profiler()
+    profiler.attach_emulator(FakeEmulator())
+    profiler.enable_pseudocode(enable_heuristics=True)
+    profiler.max_instruction_trace = 100
+
+    renderer = PseudocodeRenderer(FakeEmulator(), enable_heuristics=True)
+    profiler.pseudocode_renderer = renderer
+
+    run = Run()
+    run.start_addr = 0x401000
+    run.type = "entry_point"
+
+    def fake_render(addr, size):
+        return {"address": hex(addr), "pseudocode": "nop", "assembly": "nop", "context": [], "filtered": False}
+
+    with patch.object(renderer, "render_instruction_record", side_effect=fake_render):
+        for i in range(10):
+            run.instr_cnt = i
+            profiler.record_instruction(run, 0x401000 + i, 1)
+
+    assert len(run.instruction_trace) == 10
+
+
+def test_record_instruction_disabled_when_limit_zero():
+    """max_instruction_trace=0 时应禁用采样限制。"""
+    from unittest.mock import patch
+
+    profiler = Profiler()
+    profiler.attach_emulator(FakeEmulator())
+    profiler.enable_pseudocode(enable_heuristics=True)
+    profiler.max_instruction_trace = 0
+
+    renderer = PseudocodeRenderer(FakeEmulator(), enable_heuristics=True)
+    profiler.pseudocode_renderer = renderer
+
+    run = Run()
+    run.start_addr = 0x401000
+    run.type = "entry_point"
+
+    def fake_render(addr, size):
+        return {"address": hex(addr), "pseudocode": "nop", "assembly": "nop", "context": [], "filtered": False}
+
+    with patch.object(renderer, "render_instruction_record", side_effect=fake_render):
+        for i in range(50):
+            run.instr_cnt = i
+            profiler.record_instruction(run, 0x401000 + i, 1)
+
+    # limit=0 禁用采样，所有记录应保留
+    assert len(run.instruction_trace) == 50
+
+
+def test_merge_binary_data_via_profiler_no_stale_artifact():
+    """Profiler.merge_binary_data 调用后，旧 artifact 不应残留在报告中。"""
+    profiler = Profiler()
+    run = Run()
+    pos = TracePosition(tick=1, tid=2, pid=3, pc=0x401000)
+
+    # 连续两次 FILE_WRITE 同 path，触发 merge_binary_data
+    profiler.record_file_access_event(run, pos, "C:\\temp\\m.bin", FILE_WRITE, data=b"\xaa", size=1)
+    profiler.record_file_access_event(run, pos, "C:\\temp\\m.bin", FILE_WRITE, data=b"\xbb", size=1)
+
+    report = build_report(profiler, run)
+
+    # 报告中只应有一个 data artifact（合并后的），旧的不应残留
+    if report.data:
+        assert len(report.data) == 1, f"报告中有多余 artifact: {list(report.data)}"
+
+
+def test_get_report_serializes_api_event_dataclass():
+    """get_report 应正确序列化 dataclass 类型的 ApiEvent。"""
+    profiler = Profiler()
+    run = Run()
+    pos = TracePosition(tick=1, tid=2, pid=3, pc=0x401000)
+
+    profiler.record_api_event(run, pos, "kernel32.GetTickCount", 0x1234, [])
+
+    report = build_report(profiler, run)
+
+    events = report.entry_points[0].events
+    assert events is not None
+    assert len(events) == 1
+    # 事件应正确序列化为 ApiEventSchema
+    assert events[0].event == "api"
+    assert events[0].api_name == "kernel32.GetTickCount"
+    assert events[0].ret_val == "0x1234"
+
+
+def test_get_report_json_roundtrip_with_api_event():
+    """ApiEvent 通过 JSON 序列化/反序列化往返应一致。"""
+    profiler = Profiler()
+    run = Run()
+    pos = TracePosition(tick=5, tid=10, pid=20, pc=0x402000)
+
+    profiler.record_api_event(run, pos, "kernel32.Sleep", None, [0x3E8])
+
+    report = build_report(profiler, run)
+    json_str = report.model_dump_json(exclude_none=True)
+
+    # 反序列化
+    from speakeasy.report import Report
+    restored = Report.model_validate_json(json_str)
+
+    ep = restored.entry_points[0]
+    assert ep.events is not None
+    assert len(ep.events) == 1
+    event = ep.events[0]
+    assert event.event == "api"
+    assert event.api_name == "kernel32.Sleep"
+    assert event.ret_val is None
+    assert event.pos.tick == 5
+    assert event.pos.pc == 0x402000

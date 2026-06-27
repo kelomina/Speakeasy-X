@@ -42,7 +42,12 @@ class ArtifactStore:
             with os.fdopen(fd, "wb") as fh:
                 fh.write(data)
         except Exception:
-            os.close(fd)
+            # with 块在 fdopen 成功时已关闭 fd；
+            # 清理临时文件避免泄漏，然后重新抛出原始异常
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
             raise
         self._temp_files.append(path)
         self._artifacts[digest] = DataArtifact(
@@ -62,6 +67,17 @@ class ArtifactStore:
                 self._store_compressed(digest, data)
         return digest
 
+    def _remove_artifact(self, digest: str) -> None:
+        """从 _artifacts 中删除指定 digest，并清理对应的临时文件。"""
+        artifact = self._artifacts.pop(digest, None)
+        if artifact is not None and artifact.encoding == "file":
+            try:
+                os.unlink(artifact.data)
+            except OSError:
+                pass
+            if artifact.data in self._temp_files:
+                self._temp_files.remove(artifact.data)
+
     def append_bytes(self, ref: str, data: bytes, limit: int | None = None) -> str:
         """增量追加到已有产物的原始缓冲区，延迟压缩。
 
@@ -79,6 +95,8 @@ class ArtifactStore:
         if new_digest != ref:
             self._raw[new_digest] = raw
             self._raw.pop(ref, None)
+            # 清理旧 artifact（可能来自 _artifacts），避免报告中残留过时数据
+            self._remove_artifact(ref)
         else:
             self._raw[ref] = raw
         return new_digest

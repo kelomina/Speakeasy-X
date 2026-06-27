@@ -509,8 +509,6 @@ class Profiler:
         Log file access events. This will include things like handles being opened,
         data reads, and data writes.
         """
-        data_ref = self.put_binary_data(data or b"", limit=1024)
-
         for et in (FILE_WRITE, FILE_READ):
             if event_type == et:
                 for evt in reversed(run.events):
@@ -520,6 +518,8 @@ class Profiler:
                         if data:
                             evt.data_ref = self.merge_binary_data(evt.data_ref, data, limit=1024)
                         return
+
+        data_ref = self.put_binary_data(data or b"", limit=1024)
 
         handle_str = hex(handle) if handle else None
         buffer_str = hex(buffer) if buffer else None

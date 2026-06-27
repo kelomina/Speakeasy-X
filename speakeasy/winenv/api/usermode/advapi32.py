@@ -295,10 +295,9 @@ class AdvApi32(api.ApiHandler):
             regman = getattr(emu, "regman", None)
             if regman is not None:
                 regman.reg_handles.pop(hKey, None)
-            # 同步从 objman 反向字典移除（若存在）
-            om = getattr(emu, "om", None)
-            if om is not None:
-                om.close_handle(hKey)
+            # 注册表句柄由 regman 独立管理（RegKey 非 KernelObject，get_handle
+            # 不登记到 om._handle_map），因此不应调用 om.close_handle，否则在
+            # 句柄值与内核对象句柄冲突时会误删 objman 中的条目。
 
         return windefs.ERROR_SUCCESS
 

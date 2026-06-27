@@ -7,8 +7,10 @@
 """
 
 import json
+import os
 import time
 import logging
+import tempfile
 import multiprocessing as mp
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Union
@@ -26,11 +28,20 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # 模拟报告获取（子进程强制超时，Windows 兼容）
 # ============================================================
+#
+# 实现说明：使用「临时文件 + 原子 rename」替代 mp.Queue 在子进程与
+# 父进程之间传递 Speakeasy 报告。原因：mp.Queue 底层依赖管道，其
+# feeder 线程在数据量超过管道缓冲区（Windows ~64KB）时会阻塞等待
+# 父进程消费；而父进程此时正阻塞在 proc.join() 等待子进程退出，
+# 形成死锁，导致子进程明明 0.3s 就完成模拟，父进程却在 60s 后才
+# 误判为超时。改用临时文件后，子进程把结果落盘即返回，无管道
+# 缓冲区限制，父进程在 join 后再读文件，彻底消除该死锁。
 
-def _simulate_worker(file_path: str, queue: mp.Queue):
-    """子进程模拟 worker，将结果通过 queue 返回"""
+def _simulate_worker(file_path: str, result_file: str):
+    """子进程模拟 worker，将结果原子写入临时文件"""
+    payload: Dict[str, Any]
     try:
-        # 延迟导入：避免父进程 fork 时初始化 Speakeasy
+        # 延迟导入：避免父进程 spawn 时初始化 Speakeasy
         from speakeasy import Speakeasy
         se = Speakeasy()
         module = se.load_module(file_path)
@@ -41,9 +52,26 @@ def _simulate_worker(file_path: str, queue: mp.Queue):
             result = json.loads(report)
         else:
             result = report
-        queue.put(('success', result))
+        payload = {'status': 'success', 'result': result}
     except Exception as e:
-        queue.put(('error', str(e)))
+        payload = {'status': 'error', 'result': str(e)}
+
+    # 原子写入：先写 .tmp 再 os.replace，确保父进程要么读到完整
+    # JSON，要么读不到文件，绝不会读到半截数据。
+    tmp_path = result_file + '.tmp'
+    try:
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, result_file)
+    except Exception:
+        # 写盘失败也尝试落盘错误信息，便于父进程感知
+        try:
+            with open(result_file, 'w', encoding='utf-8') as f:
+                json.dump({'status': 'error', 'result': 'worker_io_error'}, f)
+        except Exception:
+            pass
 
 
 def simulate_with_timeout(file_path: str, timeout: int = 20) -> Optional[Dict[str, Any]]:
@@ -57,12 +85,22 @@ def simulate_with_timeout(file_path: str, timeout: int = 20) -> Optional[Dict[st
     Returns:
         模拟报告字典；失败返回 None
     """
-    queue: mp.Queue = mp.Queue()
-    proc = mp.Process(target=_simulate_worker, args=(file_path, queue))
+    # 预分配一个临时文件路径，但立即删除占位文件，让 worker 通过
+    # 原子 rename 创建它。这样父进程可以用「文件是否存在」判断
+    # worker 是否已完成写入。
+    fd, result_file = tempfile.mkstemp(suffix='.json', prefix='speakeasy_sim_')
+    os.close(fd)
+    try:
+        os.unlink(result_file)
+    except OSError:
+        pass
+
+    proc = mp.Process(target=_simulate_worker, args=(file_path, result_file))
     proc.daemon = True
     proc.start()
     proc.join(timeout=timeout)
 
+    timed_out = False
     if proc.is_alive():
         # 超时：强制终止
         proc.terminate()
@@ -70,17 +108,40 @@ def simulate_with_timeout(file_path: str, timeout: int = 20) -> Optional[Dict[st
         if proc.is_alive():
             proc.kill()
             proc.join(timeout=2)
-        logger.debug("Speakeasy 模拟超时: %s", file_path)
-        return None
+        timed_out = True
 
+    result: Optional[Dict[str, Any]] = None
+    # 子进程已退出（或被强杀），尝试读取结果文件
     try:
-        status, result = queue.get_nowait()
-        if status == 'success':
-            return result
-        logger.debug("Speakeasy 模拟失败: %s - %s", file_path, result)
-        return None
-    except Exception:
-        return None
+        with open(result_file, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        payload = None
+
+    if payload is not None:
+        if payload.get('status') == 'success':
+            result = payload.get('result')
+        else:
+            logger.debug(
+                "Speakeasy 模拟失败: %s - %s",
+                file_path, payload.get('result'),
+            )
+    elif timed_out:
+        logger.debug("Speakeasy 模拟超时: %s", file_path)
+    else:
+        logger.debug(
+            "Speakeasy 子进程异常退出且未产出结果文件: %s (exitcode=%s)",
+            file_path, proc.exitcode,
+        )
+
+    # 清理临时文件（含可能残留的 .tmp）
+    for path in (result_file, result_file + '.tmp'):
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    return result
 
 
 # ============================================================
