@@ -17,6 +17,9 @@ speakeasy_emulator.egg-info/
 Speakeasy_X.egg-info/
 __pycache__/
 
+# Claude Code analysis database
+.project-analysis/
+
 # Sample data (too large for git)
 data/
 
