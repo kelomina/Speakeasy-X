@@ -88,10 +88,16 @@ class WininetComponent:
 
     curr_handle = 0x20
     config: Any | None = None
+    # Flat handle -> component index shared across all WinInet components.
+    # Reset by NetworkManager.__init__ (mirrors the existing `config` pattern)
+    # so each emulator run starts with a clean index.
+    handle_index: dict[int, "WininetComponent"] = {}
 
     def __init__(self):
         super().__init__()
         self.handle = self.new_handle()
+        # Auto-register so get_wininet_object can resolve any handle in O(1).
+        WininetComponent.handle_index[self.handle] = self
 
     def new_handle(self):
         tmp = WininetComponent.curr_handle
@@ -261,7 +267,7 @@ class WininetInstance(WininetComponent):
         self.sessions: dict[int, WininetSession] = {}
 
     def get_session(self, sess_handle):
-        self.sessions.get(sess_handle)
+        return self.sessions.get(sess_handle)
 
     def add_session(self, handle, session):
         self.sessions.update({handle: session})
@@ -288,8 +294,21 @@ class NetworkManager:
         self.dns: Any | None = None
 
         WininetComponent.config = config
+        # Reset the shared handle index for this emulator run so stale handles
+        # from a previous NetworkManager instance cannot leak in. Multiple
+        # NetworkManager instances may exist per run (winemu/wininet/winhttp/
+        # netio each create their own); the last reset wins, mirroring the
+        # existing `config` class-attribute pattern.
+        WininetComponent.handle_index = {}
         if config:
             self.dns = config.dns
+
+    @property
+    def _handle_index(self) -> dict[int, "WininetComponent"]:
+        # Always read the live class attribute so that handle lookups observe
+        # components registered after this NetworkManager was constructed
+        # (e.g. when another NetworkManager reset the shared index).
+        return WininetComponent.handle_index
 
     def new_socket(self, family, stype, protocol, flags):
 
@@ -356,7 +375,13 @@ class NetworkManager:
         return wini
 
     def get_wininet_object(self, handle):
-
+        # O(1) lookup via the flat handle index auto-populated by
+        # WininetComponent.__init__ (covers instances, sessions and requests).
+        obj = self._handle_index.get(handle)
+        if obj is not None:
+            return obj
+        # Fallback to the legacy nested scan for any component that was not
+        # registered (defensive; should not happen in normal flows).
         for hinst, inst in self.wininets.items():
             if hinst == handle:
                 return inst
@@ -366,10 +391,34 @@ class NetworkManager:
                 for hreq, req in sess.requests.items():
                     if hreq == handle:
                         return req
+        return None
 
     def close_wininet_object(self, handle):
-        if self.wininets.get(handle):
-            self.wininets.pop(handle)
+        # Recursively clean up the target component and any children it owns so
+        # that sessions/requests do not leak when their parent is closed.
+        obj = self._handle_index.get(handle)
+        if obj is None:
+            # Legacy path: only top-level instances were handled here before.
+            if self.wininets.get(handle):
+                self.wininets.pop(handle)
+            return
+
+        if isinstance(obj, WininetInstance):
+            # Drop every session (and their requests) owned by this instance.
+            for sess in list(obj.sessions.values()):
+                self.close_wininet_object(sess.get_handle())
+            self.wininets.pop(handle, None)
+        elif isinstance(obj, WininetSession):
+            # Drop every request owned by this session.
+            for req in list(obj.requests.values()):
+                self.close_wininet_object(req.get_handle())
+            # Detach from the owning instance.
+            obj.instance.sessions.pop(handle, None)
+        elif isinstance(obj, WininetRequest):
+            # Detach from the owning session.
+            obj.session.requests.pop(handle, None)
+
+        self._handle_index.pop(handle, None)
 
     def get_socket(self, fd):
         return self.sockets.get(fd)

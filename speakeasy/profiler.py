@@ -4,10 +4,11 @@
 __report_version__ = "3.0.0"
 
 import hashlib
+import json
 import time
 import urllib.parse
 import weakref
-from collections import deque
+from collections import OrderedDict, deque
 from typing import Any
 from xml.sax.saxutils import escape
 
@@ -112,11 +113,15 @@ class Run:
         self.thread: Any | None = None
         self.unique_apis: list[str] = []
         self.api_hash = hashlib.sha256()
+        # V2-13-1: 最近 3 个 ApiEvent 的原始去重键，构造事件前 O(1) 命中即跳过
+        self.api_dedup_keys: deque = deque(maxlen=3)
         self.stack: MemAccess | None = None
         self.api_callbacks: list[tuple[int, str, list[Any] | tuple[Any, ...]]] = []
-        self.exec_cache: deque[MemAccess] = deque(maxlen=4)
-        self.read_cache: deque[MemAccess] = deque(maxlen=4)
-        self.write_cache: deque[MemAccess] = deque(maxlen=4)
+        # V2-4-1: 页基址 (addr >> 12) -> MemAccess 的 LRU 字典，替代 maxlen=4 的
+        # 线性扫描 deque。多区间交错访问时命中率显著提升；超出上限时淘汰最久未用项。
+        self.exec_cache: "OrderedDict[int, MemAccess]" = OrderedDict()
+        self.read_cache: "OrderedDict[int, MemAccess]" = OrderedDict()
+        self.write_cache: "OrderedDict[int, MemAccess]" = OrderedDict()
 
         self.args: list[Any] | tuple[Any, ...] | None = None
         self.start_addr: int | None = None
@@ -167,6 +172,8 @@ class Profiler:
         self.pseudocode_renderer: PseudocodeRenderer | None = None
         # 指令跟踪上限，超过后采样记录，防止长样本内存爆炸
         self.max_instruction_trace: int = 100000
+        # V2-13-2: 事件级上限，超过后采样记录，防止 run.events 内存线性膨胀
+        self.max_events: int = 100000
 
     def attach_emulator(self, emulator: Any) -> None:
         self.emulator_ref = weakref.ref(emulator)
@@ -228,9 +235,10 @@ class Profiler:
         renderer = self.get_pseudocode_renderer()
         if renderer is None:
             return
-        record = renderer.render_instruction_record(address, size)
-        if record:
-            run.instruction_trace.append(record)
+        # V2-14-1: 热路径只生成占位记录，批量反汇编延迟到 compact_instruction_records
+        # （_materialize_pending 已就绪）。nop/被过滤指令在反汇编时返回 None 被丢弃，
+        # 与即时路径行为一致，但避免了逐条 mem_read + disasm 的高频开销。
+        run.instruction_trace.append({"_pending": True, "_addr": address, "_size": size})
 
     def get_pseudocode_lines(self) -> list[str]:
         lines: list[str] = []
@@ -468,6 +476,22 @@ class Profiler:
             run.api_hash.update(name.lower().encode("utf-8"))
             run.unique_apis.append(name)
 
+        # V2-13-1: 去重前置——在格式化/构造事件前用原始 argv 判定，
+        # 命中最近 3 个 ApiEvent 则直接返回，避免参数复制与事件对象分配
+        try:
+            dedup_key = (pos.pc, name, ret, tuple(argv))
+        except TypeError:
+            dedup_key = None
+        if dedup_key is not None and dedup_key in run.api_dedup_keys:
+            return
+
+        # V2-13-2: 事件级上限，超限后采样记录，防止 run.events 内存线性膨胀
+        limit = self.max_events
+        if limit > 0 and len(run.events) >= limit:
+            interval = max(1, len(run.events) // limit)
+            if run.num_apis % (interval + 1) != 0:
+                return
+
         ret_str = hex(ret) if ret is not None else None
 
         args = argv.copy()
@@ -481,16 +505,9 @@ class Profiler:
             args=args,
             ret_val=ret_str,
         )
-
-        recent_events = [e for e in run.events[-3:] if isinstance(e, ApiEvent)]
-        if not any(
-            e.pos.pc == event.pos.pc
-            and e.api_name == event.api_name
-            and e.args == event.args
-            and e.ret_val == event.ret_val
-            for e in recent_events
-        ):
-            run.events.append(event)
+        run.events.append(event)
+        if dedup_key is not None:
+            run.api_dedup_keys.append(dedup_key)
 
     def record_file_access_event(
         self,
@@ -865,12 +882,20 @@ class Profiler:
         )
         run.events.append(event)
 
-    def get_json_report(self) -> str:
+    def get_json_report(self, fp=None) -> str | None:
         """
-        Retrieve the execution profile for the emulator as a json string
+        Retrieve the execution profile for the emulator as a json string.
+
+        If ``fp`` (a file-like object) is provided, the report is streamed to it
+        via ``json.dump`` to avoid building a full JSON string in memory and
+        returns None. Otherwise returns the JSON string (indent=4).
         """
         report = self.get_report()
-        return report.model_dump_json(indent=4, exclude_none=True)
+        data = report.model_dump(mode="python", exclude_none=True)
+        if fp is None:
+            return json.dumps(data, indent=4)
+        json.dump(data, fp, indent=4)
+        return None
 
     def get_report(self) -> Report:
         """

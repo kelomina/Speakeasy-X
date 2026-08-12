@@ -39,13 +39,12 @@ class WtsApi32(api.ApiHandler):
           DWORD              *pCount
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         hServer, res, ver, ppSessionInfo, pCount = argv
         rv = 0
 
         fn = ctx["func_name"]
-        cw = self.get_char_width(ctx)
 
         winstatname = "RDP-Tcp#1" + "\x00"
         if cw == 2:

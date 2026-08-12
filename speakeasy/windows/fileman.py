@@ -75,8 +75,10 @@ class File:
         self.path: str = path
         self.data: io.BytesIO | bytes | None = None
         self.bytes_written: int = 0
+        self._size: int = 0
         if data:
             self.data = io.BytesIO(data)
+            self._size = len(data)
         self.curr_offset: int = 0
         self.is_dir: bool = False
         self.config: Any = config if config is not None else {}
@@ -84,6 +86,7 @@ class File:
     def duplicate(self):
         if not self.data and self.config:
             self.data = self.handle_file_data()
+            self._sync_size()
 
         if isinstance(self.data, io.BytesIO):
             data = self.data.getvalue()
@@ -107,26 +110,31 @@ class File:
         h.update(data)
         return h.hexdigest()
 
+    def _sync_size(self):
+        """Refresh self._size from the current self.data buffer."""
+        if isinstance(self.data, io.BytesIO):
+            self._size = len(self.data.getvalue())
+        elif isinstance(self.data, bytes):
+            self._size = len(self.data)
+        else:
+            self._size = 0
+
     def get_size(self):
         if not self.data and self.config:
             self.data = self.handle_file_data()
-        if not self.data:
-            return 0
-        off = self.data.tell()
-        self.data.seek(0, io.SEEK_SET)
-        size = len(self.data.read())
-        self.data.seek(off, io.SEEK_SET)
-        return size
+            self._sync_size()
+        return self._size
 
     def get_data(self, size=-1, reset_pointer=False):
         if not self.data and self.config:
             self.data = self.handle_file_data()
+            self._sync_size()
 
         if not self.data:
             return b""
 
         off = self.data.tell()
-        if off == self.get_size():
+        if off == self._size:
             if reset_pointer:
                 # Reset the file pointer
                 self.data.seek(0)
@@ -155,9 +163,11 @@ class File:
         self.data.write(data)
         self.data.seek(off, io.SEEK_SET)
         self.bytes_written += len(data)
+        self._size += len(data)
 
     def remove_data(self):
         self.data = io.BytesIO(b"")
+        self._size = 0
 
     def is_directory(self):
         return self.is_dir
@@ -233,6 +243,19 @@ class FileManager:
 
         # First file in this list seems to always be the module itself
         self.files: list[File] = []
+
+        # V2-6-2: O(1) path lookup index (key = lowercase path as stored)
+        self._path_index: dict[str, File] = {}
+
+        # V2-6-3: pre-built indices for get_emu_file lookups
+        self._full_path_exact: dict[str, Any] = {}
+        self._full_path_patterns: list[Any] = []
+        self._by_ext: dict[str, Any] = {}
+        self._default_handler: Any = None
+        self._modules_indexed: bool = False
+        self._user_modules_by_path: dict[str, Any] = {}
+        self._system_modules_by_path: dict[str, Any] = {}
+        self._build_file_config_indices()
 
         full_path_entries = [f for f in self.file_config.files if f.mode == "full_path"]
         if full_path_entries:
@@ -317,10 +340,7 @@ class FileManager:
             cwd = self.config.current_dir
             path = ntpath.normpath(ntpath.join(cwd, path))
 
-        for f in self.files:
-            if f.path.lower() == path.lower():
-                return f
-        return None
+        return self._path_index.get(path.lower())
 
     def get_all_files(self):
         return self.files
@@ -349,22 +369,69 @@ class FileManager:
         """
         f = File(path, data=data)
         self.files.append(f)
+        if f.path:
+            self._path_index[f.path.lower()] = f
         return f
 
     def create_file(self, path):
         f = self.get_file_from_path(path)
         if f:
             self.files.remove(f)
+            if f.path:
+                self._path_index.pop(f.path.lower(), None)
         f = File(path)
         self.files.append(f)
+        if f.path:
+            self._path_index[f.path.lower()] = f
         return f
 
     def delete_file(self, path):
         f = self.get_file_from_path(path)
         if f:
             self.files.remove(f)
+            if f.path:
+                self._path_index.pop(f.path.lower(), None)
             return True
         return False
+
+    def _build_file_config_indices(self):
+        """Pre-build indices for get_emu_file lookups (V2-6-3)."""
+        for f in self.file_config.files:
+            mode = getattr(f, "mode", None)
+            if mode == "full_path":
+                emu_path = getattr(f, "emu_path", None)
+                if not emu_path:
+                    continue
+                emu_lower = emu_path.lower()
+                # Split exact paths (no wildcard chars) for O(1) lookup,
+                # keep wildcard patterns for fnmatch fallback.
+                if any(c in emu_lower for c in "*?["):
+                    self._full_path_patterns.append(f)
+                else:
+                    self._full_path_exact.setdefault(emu_lower, f)
+            elif mode == "by_ext":
+                ext = getattr(f, "ext", None)
+                if ext:
+                    self._by_ext.setdefault(ext, f)
+            elif mode == "default":
+                if self._default_handler is None:
+                    self._default_handler = f
+
+    def _ensure_modules_indexed(self):
+        """Lazily build module path indices (modules may be populated after init)."""
+        if self._modules_indexed:
+            return
+        all_modules = getattr(self.config, "modules", None)
+        if all_modules is not None:
+            for m in getattr(all_modules, "user_modules", None) or []:
+                mp = getattr(m, "path", None)
+                if mp:
+                    self._user_modules_by_path.setdefault(mp, m)
+            for m in getattr(all_modules, "system_modules", None) or []:
+                mp = getattr(m, "path", None)
+                if mp:
+                    self._system_modules_by_path.setdefault(mp, m)
+        self._modules_indexed = True
 
     def get_emu_file(self, path):
         # Resolve relative paths against the current directory
@@ -372,12 +439,17 @@ class FileManager:
             cwd = self.config.current_dir
             path = ntpath.normpath(ntpath.join(cwd, path))
 
+        path_lower = path.lower()
+
         # Does this file exist in our emulation environment
-        # See if we have a handler for this exact file
-        for f in self.file_config.files:
-            if f.mode == "full_path":
-                if fnmatch.fnmatch(path.lower(), f.emu_path.lower()):
-                    return f
+        # See if we have a handler for this exact file (O(1) exact match)
+        f = self._full_path_exact.get(path_lower)
+        if f is not None:
+            return f
+        # Fall back to wildcard pattern match
+        for f in self._full_path_patterns:
+            if fnmatch.fnmatch(path_lower, f.emu_path.lower()):
+                return f
 
         all_modules = self.config.modules
 
@@ -388,32 +460,29 @@ class FileManager:
 
         ext = os.path.splitext(path)[1]
 
-        # Check if we can load the contents of a decoy DLL
-        for f in all_modules.user_modules:
-            if f.path == path:
-                newconf = dict()
-                newconf["path"] = os.path.join(decoy_dir, f.name + ext)
-                return newconf
+        # Check if we can load the contents of a decoy DLL (indexed by path)
+        self._ensure_modules_indexed()
+        m = self._user_modules_by_path.get(path)
+        if m is not None:
+            newconf = dict()
+            newconf["path"] = os.path.join(decoy_dir, m.name + ext)
+            return newconf
 
-        for f in all_modules.system_modules:
-            if f.path == path:
-                newconf = dict()
-                newconf["path"] = os.path.join(decoy_dir, f.name + ext)
-                return newconf
+        m = self._system_modules_by_path.get(path)
+        if m is not None:
+            newconf = dict()
+            newconf["path"] = os.path.join(decoy_dir, m.name + ext)
+            return newconf
 
         # If no full path handler exists, do we have an extension handler?
-        for f in self.file_config.files:
-            path_ext = ntpath.splitext(path)[-1:][0].strip(".")
-            if path_ext:
-                if f.mode == "by_ext":
-                    if path_ext.lower() == f.ext:
-                        return f
+        path_ext = ntpath.splitext(path)[-1:][0].strip(".")
+        if path_ext:
+            f = self._by_ext.get(path_ext.lower())
+            if f is not None:
+                return f
 
         # Finally, do we have a catch-all default handler?
-        for f in self.file_config.files:
-            if f.mode == "default":
-                return f
-        return None
+        return self._default_handler
 
     def pipe_open(self, path, mode, num_instances, out_size, in_size):
         hnd = None
@@ -474,11 +543,15 @@ class FileManager:
                     raise FileSystemEmuError(f"File path not found: {real_path}")
                 f = File(path, config=fconf)
                 self.files.append(f)
+                if f.path:
+                    self._path_index[f.path.lower()] = f
             else:
                 if real_path and not os.path.exists(real_path):
                     raise FileSystemEmuError(f"File path not found: {real_path}")
                 f = File(path, config=fconf)
                 self.files.append(f)
+                if f.path:
+                    self._path_index[f.path.lower()] = f
             hnd = f.get_handle()
             self.file_handles.update({hnd: f})
 

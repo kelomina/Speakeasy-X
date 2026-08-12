@@ -6,16 +6,13 @@ from . import *  # noqa
 
 
 def _get_kmods():
-    def imports():
-        import types
-
-        for name, val in globals().items():
-            if isinstance(val, types.ModuleType):
-                yield val
+    # 遍历 __all__ 显式列表，避免扫描 globals() 全部条目
+    import sys
 
     kmods = []
-    imps = list(imports())
-    for i in imps:
-        if "DriverModule" in dir(i):
-            kmods.append(i)
+    pkg = __name__
+    for name in __all__:
+        mod = sys.modules.get(f"{pkg}.{name}")
+        if mod is not None and hasattr(mod, "DriverModule"):
+            kmods.append(mod)
     return kmods

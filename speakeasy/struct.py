@@ -277,9 +277,8 @@ class EmuStruct(metaclass=CMeta):
         self._link_cstructs(self)
 
         struct = self.__struct__
-        buf = (ct.c_ubyte * ct.sizeof(struct))()
-        ct.memmove(buf, ct.byref(struct), ct.sizeof(struct))
-        return bytes(buf[:])
+        # V1-S-14: 用 string_at 一步序列化，替代 逐字节 c_ubyte 数组 + memmove + 切片
+        return ct.string_at(ct.byref(struct), ct.sizeof(struct))
 
     def sizeof(self):
         """
@@ -289,7 +288,9 @@ class EmuStruct(metaclass=CMeta):
 
     def _deep_cast(self, obj, bytez, offset):
 
-        obj.__struct__ = type(obj.__struct__).from_buffer(bytearray(bytez[offset[0] :]))
+        # V1-S-15: 用 from_buffer_copy 避免中间 bytearray 切片；
+        # 与原 from_buffer(bytearray(slice)) 语义一致（均拷贝数据到结构体自有缓冲）
+        obj.__struct__ = type(obj.__struct__).from_buffer_copy(bytez, offset[0])
         for fn, c in obj.__fields__:
             subobj = obj.__filtermap__.get(fn)
             if subobj:

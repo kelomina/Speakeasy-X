@@ -25,10 +25,9 @@ class Secur32(api.ApiHandler):
           PULONG               nSize
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         NameFormat, lpNameBuffer, nSize = argv
 
-        cw = self.get_char_width(ctx)
 
         name_format = sec32defs.get_define(NameFormat, prefix="Name")
         if name_format:

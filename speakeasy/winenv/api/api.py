@@ -54,6 +54,9 @@ class ApiHandler:
         self.data = {}
         self.mod_name = ""
         self.emu = emu
+        # V2-12-3: 快速路径标志；仅当存在（或曾存在）共享内存映射时才执行传播检查。
+        # 标志为保守式：一旦置 True 不再重置，最坏情况仅退化为原始检查路径，不影响正确性。
+        self._has_shared_maps = False
         arch = self.emu.get_arch()
 
         if arch == _arch.ARCH_X86:
@@ -144,6 +147,9 @@ class ApiHandler:
         return self.emu.heap_alloc(size, heap)
 
     def mem_alloc(self, size, base=None, tag=None, flags=0, perms=0, shared=False, process=None):
+        if shared:
+            # V2-12-3: 标记存在共享内存映射，供 mem_write 快速路径判定。
+            self._has_shared_maps = True
         return self.emu.mem_map(size, base=base, tag=tag, flags=flags, perms=perms, shared=shared, process=process)
 
     def mem_free(self, addr):
@@ -315,6 +321,11 @@ class ApiHandler:
 
     def mem_write(self, addr, data):
 
+        # V2-12-3: 快速路径——若当前不存在任何共享内存映射，跳过传播检查直接写入。
+        # 绝大多数普通 PE 样本从不创建共享映射，可省去每次写都调用 get_address_map 的开销。
+        if not self._has_shared_maps:
+            return self.emu.mem_write(addr, data)
+
         # If the data being written to a shared memory mapping, update all mappings
         # This will likely have to be made more robust to handle more complicated
         # scenarios with varying file offsets
@@ -363,6 +374,24 @@ class ApiHandler:
         elif name.endswith("W"):
             return 2
         raise ApiEmuError(f"Failed to get character width from function: {name}")
+
+    def prepare_ctx(self, ctx, default_cw=None):
+        """
+        Normalize ctx (treating None as {}) and precompute char_width in one call,
+        eliminating the per-function `ctx = ctx or {}; cw = self.get_char_width(ctx)`
+        boilerplate. Returns (ctx, char_width).
+
+        If default_cw is provided, exceptions from get_char_width are swallowed
+        and default_cw is returned instead (mirrors the common try/except pattern).
+        """
+        if ctx is None:
+            ctx = {}
+        if default_cw is None:
+            return ctx, self.get_char_width(ctx)
+        try:
+            return ctx, self.get_char_width(ctx)
+        except Exception:
+            return ctx, default_cw
 
     def get_va_arg_count(self, fmt):
         """

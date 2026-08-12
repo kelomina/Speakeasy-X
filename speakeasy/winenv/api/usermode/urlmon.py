@@ -33,12 +33,11 @@ class Urlmon(api.ApiHandler):
                     LPBINDSTATUSCALLBACK lpfnCB
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         pCaller, szURL, szFileName, dwReserved, lpfnCB = argv
         rv = windefs.ERROR_SUCCESS
 
-        cw = self.get_char_width(ctx)
 
         if szURL:
             url = self.read_mem_string(szURL, cw)
@@ -67,10 +66,9 @@ class Urlmon(api.ApiHandler):
           LPBINDSTATUSCALLBACK lpfnCB
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         pCaller, szURL, szFileName, cchFileName, dwReserved, lpfnCB = argv
         rv = windefs.ERROR_SUCCESS
-        cw = self.get_char_width(ctx)
 
         cache_name = "C:\\Windows\\Temp\\urlcache.bin"
 

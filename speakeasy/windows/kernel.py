@@ -21,6 +21,17 @@ MAX_EXPORTS_TO_EMULATE = 10
 
 SYSTEM_TIME_START = 131911108955110000
 
+# IRP 派发表：预建为模块级常量，避免 next_driver_func 每次调用都重新构造列表。
+# 元素为 (方法名, IRP_MJ 常量)，方法名通过 getattr(self, name) 在使用时解析为绑定方法。
+_IRP_MJ_DISPATCH = (
+    ("irp_mj_create", ddk.IRP_MJ_CREATE),
+    ("irp_mj_dev_io", ddk.IRP_MJ_DEVICE_CONTROL),
+    ("irp_mj_read", ddk.IRP_MJ_READ),
+    ("irp_mj_write", ddk.IRP_MJ_WRITE),
+    ("irp_mj_close", ddk.IRP_MJ_CLOSE),
+    ("irp_mj_cleanup", ddk.IRP_MJ_CLEANUP),
+)
+
 
 class WinKernelEmulator(WindowsEmulator, IoManager):
     """
@@ -41,6 +52,8 @@ class WinKernelEmulator(WindowsEmulator, IoManager):
         self.delayed_runs: list[Run] = []
         self.system_time: int = SYSTEM_TIME_START
         self.ktypes = ntos
+        # 已入队的 IRP MJ 派发码集合，用于 O(1) 查找避免重复构建 [r.type for r in self.runs]
+        self._visited_mj: set[int] = set()
 
     def get_system_time(self):
         return self.system_time
@@ -471,17 +484,10 @@ class WinKernelEmulator(WindowsEmulator, IoManager):
             dev = drv.devices[0]
 
         # Run any remaining IRP handlers
-        for hdlr, i in (
-            (self.irp_mj_create, ddk.IRP_MJ_CREATE),
-            (self.irp_mj_dev_io, ddk.IRP_MJ_DEVICE_CONTROL),
-            (self.irp_mj_read, ddk.IRP_MJ_READ),
-            (self.irp_mj_write, ddk.IRP_MJ_WRITE),
-            (self.irp_mj_close, ddk.IRP_MJ_CLOSE),
-            (self.irp_mj_cleanup, ddk.IRP_MJ_CLEANUP),
-        ):
+        for method_name, i in _IRP_MJ_DISPATCH:
             # Did we run this mj func yet?
-            if i not in [r.type for r in self.runs]:
-                func_handler = hdlr
+            if i not in self._visited_mj:
+                func_handler = getattr(self, method_name)
                 func_addr = int(drv.mj_funcs[i])
 
                 if not func_addr:
@@ -505,6 +511,8 @@ class WinKernelEmulator(WindowsEmulator, IoManager):
         run.instr_cnt = 0
         run.args = (dev.address, irp.address)
         self.add_run(run)
+        # 标记该 MJ 派发码已入队，避免后续 next_driver_func 重复选取
+        self._visited_mj.add(i)
 
     def on_run_complete(self):
 

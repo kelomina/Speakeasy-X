@@ -189,7 +189,6 @@ def run_main(parser: argparse.ArgumentParser, args: argparse.Namespace, config_s
     except Exception as err:
         parser.error(f"Invalid active configuration: {err}")
 
-    active_cfg = validated.model_dump(mode="python")
     timeout = float(validated.timeout)
 
     if target and not os.path.isfile(target):
@@ -212,7 +211,7 @@ def run_main(parser: argparse.ArgumentParser, args: argparse.Namespace, config_s
             q,
             evt,
             target,
-            active_cfg,
+            validated,
             argv,
             do_raw,
             arch,
@@ -238,7 +237,7 @@ def run_main(parser: argparse.ArgumentParser, args: argparse.Namespace, config_s
                 q,
                 evt,
                 target,
-                active_cfg,
+                validated,
                 argv,
                 do_raw,
                 arch,

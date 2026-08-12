@@ -55,13 +55,12 @@ class DnsApi(api.ApiHandler):
             PVOID       *pReserved
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         pszName, wType, Options, pExtra, ppQueryResults, pReserved = argv
         rv = windefs.ERROR_INVALID_PARAMETER
         rr = None
 
-        cw = self.get_char_width(ctx)
         if pszName:
             name = self.read_mem_string(pszName, cw)
             ip = self.netman.name_lookup(name)

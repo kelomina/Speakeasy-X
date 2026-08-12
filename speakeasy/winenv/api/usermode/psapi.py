@@ -100,7 +100,7 @@ class Psapi(api.ApiHandler):
     @apihook("GetModuleBaseNameA", argc=4)
     @apihook("GetModuleBaseNameW", argc=4)
     def GetModuleBaseName(self, emu, argv, ctx: api.ApiContext = None):
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx, default_cw=1)
         hProcess, hModule, lpBaseName, nSize = argv
         if not lpBaseName or nSize == 0:
             return 0
@@ -113,10 +113,6 @@ class Psapi(api.ApiHandler):
         if not module_name:
             return 0
 
-        try:
-            cw = self.get_char_width(ctx)
-        except Exception:
-            cw = 1
 
         truncated = module_name[: max(nSize - 1, 0)]
         if cw == 1:
@@ -131,7 +127,7 @@ class Psapi(api.ApiHandler):
     @apihook("GetModuleFileNameExA", argc=4)
     @apihook("GetModuleFileNameExW", argc=4)
     def GetModuleFileNameEx(self, emu, argv, ctx: api.ApiContext = None):
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx, default_cw=1)
         hProcess, hModule, lpFilename, nSize = argv
         if not lpFilename or nSize == 0:
             return 0
@@ -144,10 +140,6 @@ class Psapi(api.ApiHandler):
         if not module_path:
             return 0
 
-        try:
-            cw = self.get_char_width(ctx)
-        except Exception:
-            cw = 1
 
         truncated = module_path[: max(nSize - 1, 0)]
         if cw == 1:

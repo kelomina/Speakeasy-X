@@ -44,11 +44,10 @@ class Shell32(api.ApiHandler):
             const SECURITY_ATTRIBUTES *psa
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         hwnd, pszPath, psa = argv
 
-        cw = self.get_char_width(ctx)
         dn = ""
         if pszPath:
             dn = self.read_mem_string(pszPath, cw)
@@ -70,11 +69,10 @@ class Shell32(api.ApiHandler):
             INT    nShowCmd
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         hwnd, lpOperation, lpFile, lpParameters, lpDirectory, nShowCmd = argv
 
-        cw = self.get_char_width(ctx)
 
         fn = ""
         param = ""
@@ -161,10 +159,9 @@ class Shell32(api.ApiHandler):
             int     *pNumArgs
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         cmdline, argc = argv
 
-        cw = self.get_char_width(ctx)
         cl = self.read_mem_string(cmdline, cw)
 
         ptrsize = emu.get_ptr_size()

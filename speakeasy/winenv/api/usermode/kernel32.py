@@ -297,9 +297,8 @@ class Kernel32(api.ApiHandler):
             LPCSTR lpOutputString
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (_str,) = argv
-        cw = self.get_char_width(ctx)
         argv[0] = self.read_mem_string(_str, cw)
 
     @apihook("GetThreadTimes", argc=5)
@@ -368,11 +367,10 @@ class Kernel32(api.ApiHandler):
             LPCSTR                lpName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         attrs, owner, name = argv
 
-        cw = self.get_char_width(ctx)
 
         if name:
             name = self.read_mem_string(name, cw)
@@ -400,10 +398,9 @@ class Kernel32(api.ApiHandler):
           DWORD                 dwDesiredAccess
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         attrs, name, flags, access = argv
 
-        cw = self.get_char_width(ctx)
 
         if name:
             name = self.read_mem_string(name, cw)
@@ -426,12 +423,11 @@ class Kernel32(api.ApiHandler):
         """HMODULE LoadLibrary(
           LPTSTR lpLibFileName
         );"""
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         (lib_name,) = argv
         hmod = windefs.NULL
 
-        cw = self.get_char_width(ctx)
         req_lib = self.read_mem_string(lib_name, cw)
         lib = winemu.normalize_dll_name(req_lib)
 
@@ -526,7 +522,7 @@ class Kernel32(api.ApiHandler):
             LPPROCESSENTRY32 lppe
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx, default_cw=1)
 
         (
             hSnapshot,
@@ -542,10 +538,6 @@ class Kernel32(api.ApiHandler):
         snap[k32types.TH32CS_SNAPPROCESS][0] = 1
         proc = snap[k32types.TH32CS_SNAPPROCESS][1][0]
 
-        try:
-            cw = self.get_char_width(ctx)
-        except Exception:
-            cw = 1
 
         pe = self.k32types.PROCESSENTRY32(emu.get_ptr_size(), cw)
         data = self.mem_cast(pe, pe32)
@@ -567,7 +559,7 @@ class Kernel32(api.ApiHandler):
             LPPROCESSENTRY32 lppe
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx, default_cw=1)
 
         (
             hSnapshot,
@@ -585,10 +577,6 @@ class Kernel32(api.ApiHandler):
             return rv
         proc = snap[k32types.TH32CS_SNAPPROCESS][1][index]
 
-        try:
-            cw = self.get_char_width(ctx)
-        except Exception:
-            cw = 1
 
         pe = self.k32types.PROCESSENTRY32(emu.get_ptr_size(), cw)
         data = self.mem_cast(pe, pe32)
@@ -676,7 +664,7 @@ class Kernel32(api.ApiHandler):
           LPMODULEENTRY32 lpme
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx, default_cw=1)
 
         (
             hSnapshot,
@@ -692,10 +680,6 @@ class Kernel32(api.ApiHandler):
         snap[k32types.TH32CS_SNAPMODULE][0] = 1
         module = snap[k32types.TH32CS_SNAPMODULE][1][0]
 
-        try:
-            cw = self.get_char_width(ctx)
-        except Exception:
-            cw = 1
 
         mod = self.k32types.MODULEENTRY32(emu.get_ptr_size(), cw)
         data = self.mem_cast(mod, mod32)
@@ -723,7 +707,7 @@ class Kernel32(api.ApiHandler):
           LPMODULEENTRY32 lpme
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx, default_cw=1)
 
         (
             hSnapshot,
@@ -740,10 +724,6 @@ class Kernel32(api.ApiHandler):
         if index >= len(snap[k32types.TH32CS_SNAPMODULE][1]):
             return rv
         module = snap[k32types.TH32CS_SNAPMODULE][1][index]
-        try:
-            cw = self.get_char_width(ctx)
-        except Exception:
-            cw = 1
 
         mod = self.k32types.MODULEENTRY32(emu.get_ptr_size(), cw)
         data = self.mem_cast(mod, mod32)
@@ -800,11 +780,10 @@ class Kernel32(api.ApiHandler):
             LPCWSTR lpName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         access, inherit, name = argv
 
-        cw = self.get_char_width(ctx)
 
         if name:
             obj_name = self.read_mem_string(name, cw)
@@ -888,13 +867,12 @@ class Kernel32(api.ApiHandler):
           HANDLE hFile,
           DWORD  dwFlags
         );"""
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         lib_name, _, dwFlags = argv
 
         hmod = 0
 
-        cw = self.get_char_width(ctx)
         req_lib = self.read_mem_string(lib_name, cw)
         lib = winemu.normalize_dll_name(req_lib)
 
@@ -964,10 +942,9 @@ class Kernel32(api.ApiHandler):
           LPSTARTUPINFO         lpStartupInfo,
           LPPROCESS_INFORMATION lpProcessInformation
         );"""
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         app, cmd, pa, ta, inherit, flags, env, cd, si, ppi = argv
 
-        cw = self.get_char_width(ctx)
         cmdstr = ""
         appstr = ""
         if app:
@@ -1711,11 +1688,10 @@ class Kernel32(api.ApiHandler):
         _In_ LPCTSTR lpConsoleTitle
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         (lpConsoleTitle,) = argv
         if lpConsoleTitle:
-            cw = self.get_char_width(ctx)
             cs1 = self.read_mem_string(lpConsoleTitle, cw)
             argv[0] = cs1
         return True
@@ -1858,8 +1834,7 @@ class Kernel32(api.ApiHandler):
           LPCSTR lpString1,
           LPCSTR lpString2
         );"""
-        ctx = ctx or {}
-        cw = self.get_char_width(ctx)
+        ctx, cw = self.prepare_ctx(ctx)
 
         string1, string2 = argv
         rv = 1
@@ -1881,8 +1856,7 @@ class Kernel32(api.ApiHandler):
           LPCSTR lpString1,
           LPCSTR lpString2
         );"""
-        ctx = ctx or {}
-        cw = self.get_char_width(ctx)
+        ctx, cw = self.prepare_ctx(ctx)
 
         string1, string2 = argv
         rv = 1
@@ -1917,12 +1891,8 @@ class Kernel32(api.ApiHandler):
             LPCSTR lpString
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx, default_cw=1)
         (src,) = argv
-        try:
-            cw = self.get_char_width(ctx)
-        except Exception:
-            cw = 1
         s = self.read_mem_string(src, cw)
 
         argv[0] = s
@@ -1952,11 +1922,10 @@ class Kernel32(api.ApiHandler):
         """HMODULE GetModuleHandle(
           LPCSTR lpModuleName
         );"""
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         (mod_name,) = argv
 
-        cw = self.get_char_width(ctx)
         rv = 0
 
         if not mod_name:
@@ -2191,10 +2160,9 @@ class Kernel32(api.ApiHandler):
           LPCSTR lpString2
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpString1, lpString2 = argv
 
-        cw = self.get_char_width(ctx)
         s1 = self.read_mem_string(lpString1, cw)
         s2 = self.read_mem_string(lpString2, cw)
 
@@ -2219,10 +2187,9 @@ class Kernel32(api.ApiHandler):
           int    iMaxLength
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         dest, src, iMaxLength = argv
 
-        cw = self.get_char_width(ctx)
 
         s = self.read_mem_string(src, cw)
         argv[1] = s
@@ -2240,10 +2207,9 @@ class Kernel32(api.ApiHandler):
           LPCSTR lpString2
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         dest, src = argv
 
-        cw = self.get_char_width(ctx)
 
         s = self.read_mem_string(src, cw)
         argv[1] = s
@@ -2581,10 +2547,9 @@ class Kernel32(api.ApiHandler):
         """
         LPTSTR GetCommandLine();
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         fn = ctx["func_name"]
-        cw = self.get_char_width(ctx)
         curr_proc = emu.get_current_process()
 
         cmdline = curr_proc.cmdline
@@ -2612,11 +2577,10 @@ class Kernel32(api.ApiHandler):
             DWORD  nSize
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpSrc, lpDst, nSize = argv
         rv = 0
 
-        cw = self.get_char_width(ctx)
         if lpSrc:
             src = self.read_mem_string(lpSrc, cw)
             dst = src
@@ -2640,11 +2604,10 @@ class Kernel32(api.ApiHandler):
         """
         LPCH GetEnvironmentStrings();
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         out = ""
         fn = ctx["func_name"]
-        cw = self.get_char_width(ctx)
         for k, v in emu.get_env().items():
             out += f"{k} {v} "
 
@@ -2685,10 +2648,9 @@ class Kernel32(api.ApiHandler):
             LPSTR  *lpFilePart
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         lpFileName, nBufferLength, lpBuffer, lpFilePart = argv
-        cw = self.get_char_width(ctx)
         rv = 0
 
         if lpFileName:
@@ -2714,11 +2676,10 @@ class Kernel32(api.ApiHandler):
           LPSTARTUPINFO lpStartupInfo
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         (lpStartupInfo,) = argv
 
-        cw = self.get_char_width(ctx)
         si = self.k32types.STARTUPINFO(emu.get_ptr_size())
 
         # Did we already alloc memory for the process's desktop name?
@@ -3002,11 +2963,10 @@ class Kernel32(api.ApiHandler):
           LPWORD                        lpCharType
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         dwInfoType, lpSrcStr, cchSrc, lpCharType = argv
         rv = 0
 
-        cw = self.get_char_width(ctx)
         if not cw:
             cw = 2
 
@@ -3072,12 +3032,11 @@ class Kernel32(api.ApiHandler):
           int     cchDest
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         (Locale, dwMapFlags, lpSrcStr, cchSrc, lpDestStr, cchDest) = argv
 
         rv = 0
-        cw = self.get_char_width(ctx)
 
         if lpSrcStr == 0 or cchSrc == 0:
             emu.set_last_error(windefs.ERROR_INVALID_PARAMETER)
@@ -3132,10 +3091,9 @@ class Kernel32(api.ApiHandler):
           DWORD   nSize
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hModule, lpFilename, nSize = argv
         size = 0
-        cw = self.get_char_width(ctx)
 
         filename = ""
         if hModule == 0:
@@ -3237,11 +3195,10 @@ class Kernel32(api.ApiHandler):
           UINT  uSize
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         rv = 0
         lpBuffer, uSize = argv
 
-        cw = self.get_char_width(ctx)
         fn = ctx["func_name"]
         if "GetWindowsDirectory" in fn:
             sysroot = "C:\\Windows"
@@ -3281,9 +3238,8 @@ class Kernel32(api.ApiHandler):
             LPCTSTR lpValue
             );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpName, lpValue = argv
-        cw = self.get_char_width(ctx)
         if lpName and lpValue:
             name = self.read_mem_string(lpName, cw)
             val = self.read_mem_string(lpValue, cw)
@@ -3299,10 +3255,9 @@ class Kernel32(api.ApiHandler):
             LPCSTR lpPathName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (path,) = argv
 
-        cw = self.get_char_width(ctx)
         if path:
             path = self.read_mem_string(path, cw)
             argv[0] = path
@@ -3331,10 +3286,9 @@ class Kernel32(api.ApiHandler):
           LPTSTR                lpName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hfile, map_attrs, prot, max_size_high, max_size_low, map_name = argv
 
-        cw = self.get_char_width(ctx)
 
         # Get to full map size
         size = (max_size_high << 32) | max_size_low
@@ -3470,9 +3424,8 @@ class Kernel32(api.ApiHandler):
             LPCSTR lpFileName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (fn,) = argv
-        cw = self.get_char_width(ctx)
         rv = windefs.INVALID_FILE_ATTRIBUTES
         target = self.read_mem_string(fn, cw)
         argv[0] = target
@@ -3489,10 +3442,9 @@ class Kernel32(api.ApiHandler):
           LPVOID                 lpFileInformation
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpFileName, fInfoLevelId, lpFileInformation = argv
 
-        cw = self.get_char_width(ctx)
 
         filename = self.read_mem_string(lpFileName, cw)
         argv[0] = filename
@@ -3585,9 +3537,8 @@ class Kernel32(api.ApiHandler):
             LPSECURITY_ATTRIBUTES lpSecurityAttributes
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         pn, sec = argv
-        cw = self.get_char_width(ctx)
 
         if pn:
             target = self.read_mem_string(pn, cw)
@@ -3601,9 +3552,8 @@ class Kernel32(api.ApiHandler):
         [in] LPCSTR lpPathName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (pn,) = argv
-        cw = self.get_char_width(ctx)
 
         if pn:
             target = self.read_mem_string(pn, cw)
@@ -3620,9 +3570,8 @@ class Kernel32(api.ApiHandler):
             BOOL    bFailIfExists
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         src, dst, fail = argv
-        cw = self.get_char_width(ctx)
 
         if src:
             src = self.read_mem_string(src, cw)
@@ -3673,9 +3622,8 @@ class Kernel32(api.ApiHandler):
             LPCTSTR lpNewFileName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         src, dst = argv
-        cw = self.get_char_width(ctx)
 
         if src:
             src = self.read_mem_string(src, cw)
@@ -3735,11 +3683,10 @@ class Kernel32(api.ApiHandler):
           HANDLE                hTemplateFile
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         fname, access, share, sec_attr, disp, flags, template = argv
         hnd = windefs.INVALID_HANDLE_VALUE
 
-        cw = self.get_char_width(ctx)
 
         if not fname:
             return hnd
@@ -3809,9 +3756,8 @@ class Kernel32(api.ApiHandler):
             LPCWSTR lpFileName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpFileName = argv[0]
-        cw = self.get_char_width(ctx)
         if not lpFileName:
             emu.set_last_error(windefs.INVALID_HANDLE_VALUE)
             return 0
@@ -4109,10 +4055,9 @@ class Kernel32(api.ApiHandler):
             DWORD   nFileSystemNameSize
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         root, vol_buf, vol_size, serial, comp_len, fs_flags, fs_name, fs_name_len = argv
 
-        cw = self.get_char_width(ctx)
         if root:
             root_name = self.read_mem_string(root, cw)
             argv[0] = root_name
@@ -4129,10 +4074,9 @@ class Kernel32(api.ApiHandler):
             LPCSTR                lpName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         attrs, reset, state, name = argv
 
-        cw = self.get_char_width(ctx)
         evt_name = None
         obj = None
         if name:
@@ -4157,10 +4101,9 @@ class Kernel32(api.ApiHandler):
             LPCSTR                lpTimerName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         _attrs, _manual_reset, name = argv
 
-        cw = self.get_char_width(ctx)
         timer_name = None
         obj = None
         if name:
@@ -4187,10 +4130,9 @@ class Kernel32(api.ApiHandler):
             DWORD                 dwDesiredAccess
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         _attrs, name, _flags, _access = argv
 
-        cw = self.get_char_width(ctx)
         timer_name = None
         obj = None
         if name:
@@ -4216,10 +4158,9 @@ class Kernel32(api.ApiHandler):
             LPCSTR lpTimerName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         _access, _inherit, name = argv
 
-        cw = self.get_char_width(ctx)
         timer_name = None
         hnd = 0
         if name:
@@ -4284,10 +4225,9 @@ class Kernel32(api.ApiHandler):
             LPCSTR lpName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         access, inherit, name = argv
 
-        cw = self.get_char_width(ctx)
         evt_name = None
         hnd = 0
         if name:
@@ -4601,7 +4541,7 @@ class Kernel32(api.ApiHandler):
             LPSECURITY_ATTRIBUTES lpSecurityAttributes
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (
             lpName,
             dwOpenMode,
@@ -4613,7 +4553,6 @@ class Kernel32(api.ApiHandler):
             lpSecurityAttributes,
         ) = argv
 
-        cw = self.get_char_width(ctx)
 
         pipe_name = ""
         if lpName:
@@ -4718,11 +4657,10 @@ class Kernel32(api.ApiHandler):
           int    cchData
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         Locale, LCType, lpLCData, cchData = argv
 
         rv = 0
-        cw = self.get_char_width(ctx)
 
         lcid = k32types.get_define(Locale, "LOCALE_")
         if lcid:
@@ -4785,11 +4723,10 @@ class Kernel32(api.ApiHandler):
             LPDWORD nSize
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         lpBuffer, nSize = argv
         rv = False
-        cw = self.get_char_width(ctx)
 
         host = emu.config.hostname
         argv[0] = host
@@ -4843,12 +4780,11 @@ class Kernel32(api.ApiHandler):
         DWORD   nSize
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         lpName, lpBuffer, nSize = argv
         rv = 0
 
-        cw = self.get_char_width(ctx)
 
         name = self.read_mem_string(lpName, cw)
         argv[0] = name
@@ -4919,11 +4855,10 @@ class Kernel32(api.ApiHandler):
             LPWIN32_FIND_DATAA lpFindFileData
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         lpFileName, lpFindFileData = argv
 
-        cw = self.get_char_width(ctx)
 
         if not lpFileName or not lpFindFileData:
             return windefs.INVALID_HANDLE_VALUE
@@ -4966,11 +4901,10 @@ class Kernel32(api.ApiHandler):
             LPWIN32_FIND_DATAA lpFindFileData
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         hFindFile, lpFindFileData = argv
 
-        cw = self.get_char_width(ctx)
 
         fsearch = self.find_files.get(hFindFile)
 
@@ -5125,9 +5059,8 @@ class Kernel32(api.ApiHandler):
             LPCSTR  lpType
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
-        cw = self.get_char_width(ctx)
         hModule, lpName, lpType = argv
         if hModule == 0:
             pe = emu.modules[0] if emu.modules else None
@@ -5161,10 +5094,9 @@ class Kernel32(api.ApiHandler):
             [in]           WORD    wLanguage
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         # repeats code from FindResource()
-        cw = self.get_char_width(ctx)
         hModule, lpType, lpName, wLanguage = argv
         if hModule == 0:
             pe = emu.modules[0] if emu.modules else None
@@ -5269,8 +5201,7 @@ class Kernel32(api.ApiHandler):
         is queued for each unique type so the emulated callback can drive further
         resource enumeration (e.g. EnumResourceNamesW).
         """
-        ctx = ctx or {}
-        cw = self.get_char_width(ctx)
+        ctx, cw = self.prepare_ctx(ctx)
         hModule, lpEnumFunc, lParam = argv
 
         if not lpEnumFunc:
@@ -5325,8 +5256,7 @@ class Kernel32(api.ApiHandler):
         for each unique name so the emulated callback can locate and load the
         resource (e.g. via FindResourceW/LoadResource).
         """
-        ctx = ctx or {}
-        cw = self.get_char_width(ctx)
+        ctx, cw = self.prepare_ctx(ctx)
         hModule, lpType, lpEnumFunc, lParam = argv
 
         if not lpEnumFunc:
@@ -5379,10 +5309,9 @@ class Kernel32(api.ApiHandler):
             LPTSTR lpBuffer
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         nBufferLength, lpBuffer = argv
 
-        cw = self.get_char_width(ctx)
         cd = emu.get_cd()
         required = len(cd) + 1
 
@@ -5434,11 +5363,10 @@ class Kernel32(api.ApiHandler):
             LPCTSTR lpPathName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (path,) = argv
 
         if path:
-            cw = self.get_char_width(ctx)
             path_str = self.read_mem_string(path, cw)
             argv[0] = path_str
             emu.set_cd(path_str)
@@ -5540,9 +5468,8 @@ class Kernel32(api.ApiHandler):
             UINT_PTR ucchMax
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpsz, ucchMax = argv
-        cw = self.get_char_width(ctx)
         rv = True
 
         if lpsz and ucchMax:
@@ -5582,11 +5509,10 @@ class Kernel32(api.ApiHandler):
         LPSTR lpBuffer
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         nBufferLength, lpBuffer = argv
         rv = 0
-        cw = self.get_char_width(ctx)
         tempdir = emu.get_env().get("temp", "C:\\Windows\\temp\\")
         if cw == 2:
             new = (tempdir).encode("utf-16le") + b"\x00\x00"
@@ -5626,10 +5552,9 @@ class Kernel32(api.ApiHandler):
           LPCSTR lpRootPathName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (lpRootPathName,) = argv
 
-        cw = self.get_char_width(ctx)
         name = self.read_mem_string(lpRootPathName, cw)
         if name:
             argv[0] = name
@@ -5685,9 +5610,8 @@ class Kernel32(api.ApiHandler):
         );
         https://en.wikipedia.org/wiki/8.3_filename#VFAT_and_Computer-generated_8.3_filenames
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpszLongPath, lpszShortPath, cchBuffer = argv
-        cw = self.get_char_width(ctx)
         s = self.read_mem_string(lpszLongPath, cw)
         argv[0] = s
         files = s.split("\\")
@@ -5734,11 +5658,10 @@ class Kernel32(api.ApiHandler):
           DWORD  cchBuffer
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpszShortPath, lpszLongPath, cchBuffer = argv
 
         # Not an accurate implementation, just a placeholder for now
-        cw = self.get_char_width(ctx)
         s = self.read_mem_string(lpszShortPath, cw)
         argv[0] = s
 
@@ -5838,10 +5761,9 @@ class Kernel32(api.ApiHandler):
           LPCWSTR lpString
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         ATOM_RESERVED = 0xC000
         (lpString,) = argv
-        cw = self.get_char_width(ctx)
         s = self.read_mem_string(lpString, cw)
         if len(s) == 0:
             emu.set_last_error(windefs.ERROR_INVALID_PARAMETER)
@@ -5860,10 +5782,9 @@ class Kernel32(api.ApiHandler):
           LPCSTR lpString
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         ATOM_RESERVED = 0xC000
         (lpString,) = argv
-        cw = self.get_char_width(ctx)
         s = self.read_mem_string(lpString, cw)
         if len(s) == 0:
             emu.set_last_error(windefs.ERROR_INVALID_PARAMETER)
@@ -5889,10 +5810,9 @@ class Kernel32(api.ApiHandler):
           int   nSize
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         ATOM_RESERVED = 0xC000
         nAtom, lpBuffer, nSize = argv
-        cw = self.get_char_width(ctx)
         if nAtom < ATOM_RESERVED:
             s = f"#{nAtom}"
         elif nAtom not in self.local_atom_table:
@@ -5991,10 +5911,9 @@ class Kernel32(api.ApiHandler):
           DWORD  cchBufferLength
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpszVolumeName, _ = argv
 
-        cw = self.get_char_width(ctx)
 
         dm = emu.get_drive_manager()
         dw = dm.walk_drives()
@@ -6020,10 +5939,9 @@ class Kernel32(api.ApiHandler):
           DWORD  cchBufferLength
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hFindVolume, lpszVolumeName, cchBufferLength = argv
 
-        cw = self.get_char_width(ctx)
 
         dsearch = self.find_volumes.get(hFindVolume)
         if not hFindVolume or not dsearch:
@@ -6086,10 +6004,9 @@ class Kernel32(api.ApiHandler):
           PDWORD  lpcchReturnLength
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpszVolumeName, lpszVolumePathNames, cchBufferLength, lpcchReturnLength = argv
 
-        cw = self.get_char_width(ctx)
 
         volume_guid_path = self.read_mem_string(lpszVolumeName, cw)
         if volume_guid_path:
@@ -6224,10 +6141,9 @@ class Kernel32(api.ApiHandler):
           LPDWORD              nSize
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         NameType, lpBuffer, nSize = argv
 
-        cw = self.get_char_width(ctx)
 
         name_type = k32types.get_define(NameType, prefix="ComputerName")
         if name_type:
@@ -6256,10 +6172,9 @@ class Kernel32(api.ApiHandler):
           int              cchDate
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         Locale, dwFlags, lpDate, lpFormat, lpDateStr, cchDate = argv
 
-        cw = self.get_char_width(ctx)
 
         locale = k32types.get_define(Locale, prefix="LOCALE_")
         if locale:
@@ -6361,10 +6276,9 @@ class Kernel32(api.ApiHandler):
           int              cchTime
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         Locale, dwFlags, lpTime, lpFormat, lpTimeStr, cchTime = argv
 
-        cw = self.get_char_width(ctx)
 
         locale = k32types.get_define(Locale, prefix="LOCALE_")
         if locale:
@@ -6510,14 +6424,13 @@ class Kernel32(api.ApiHandler):
           DWORD   nSize
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hProcess, hModule, lpFilename, nSize = argv
 
         if hModule:
             return self.GetModuleFileName(hModule, lpFilename, nSize)
 
         size = 0
-        cw = self.get_char_width(ctx)
 
         proc = self.get_object_from_handle(hProcess)
 
@@ -6661,10 +6574,9 @@ class Kernel32(api.ApiHandler):
             [out] LPSTR  lpTempFileName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpPathName, lpPrefixString, uUnique, lpTempFileName = argv
 
-        cw = self.get_char_width(ctx)
         path = self.read_mem_string(lpPathName, cw)
         prefix = self.read_mem_string(lpPrefixString, cw)
 
@@ -6709,9 +6621,8 @@ class Kernel32(api.ApiHandler):
             int    iReadWrite
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpFileName, iRedWrite = argv
-        cw = self.get_char_width(ctx)
         filename = self.read_mem_string(lpFileName, cw)
         fHandle = self.file_open(filename)
         return fHandle
@@ -6738,9 +6649,8 @@ class Kernel32(api.ApiHandler):
             _In_  DWORD nSize
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpConsoleTitle, nSize = argv
-        cw = self.get_char_width(ctx)
         rv = False
 
         # TODO: consider enumeration logic

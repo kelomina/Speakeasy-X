@@ -41,6 +41,9 @@ class ToggleableHook:
     Hook than can be toggled on/off at arbitrary times.
     """
 
+    # V2-3-2: __slots__ 减少实例内存占用与属性访问开销
+    __slots__ = ("cb", "enabled")
+
     def __init__(self, cb):
         self.cb = cb
         self.enabled = False
@@ -67,6 +70,11 @@ class EmuEngine:
         self._code_hooks: list = []
         self._code_dispatch_id = None
         self._code_dispatch_cb = None
+        # V2-3-2: per-hook 句柄表 + 禁用索引集合，使 hook_enable/hook_disable
+        # 可单独控制每个 code hook（句柄置于 0x40000000+ 段以避免与原生句柄碰撞）
+        self._code_hook_handles: dict = {}
+        self._code_hook_disabled: set = set()
+        self._code_hook_seq = 0
 
         self.regs = {
             arch.X86_REG_EAX: u.UC_X86_REG_EAX,
@@ -205,6 +213,54 @@ class EmuEngine:
             raise EmuEngineError(f"Unknown register: {reg}")
         return self.emu.reg_read(ereg)  # type: ignore[union-attr]
 
+    def reg_read_batch(self, regs):
+        """V2-3-1: 批量读取寄存器，单次 C 边界跨越（替代多次 reg_read）。
+
+        args:
+            regs: 可迭代的架构层寄存器常量列表
+        return:
+            与输入顺序一致的寄存器值 list
+        """
+        eregs = []
+        for r in regs:
+            ereg = self.regs.get(r)
+            if not ereg:
+                raise EmuEngineError(f"Unknown register: {r}")
+            eregs.append(ereg)
+        return list(self.emu.reg_read_batch(eregs))  # type: ignore[union-attr]
+
+    def reg_write_batch(self, reg_dict):
+        """V2-3-1: 批量写入寄存器，单次 C 边界跨越。
+
+        args:
+            reg_dict: {arch_reg_const: value} 映射
+        """
+        data = []
+        for reg, val in reg_dict.items():
+            ereg = self.regs.get(reg)
+            if not ereg:
+                raise EmuEngineError(f"Unknown register: {reg}")
+            data.append((ereg, val))
+        return self.emu.reg_write_batch(data)  # type: ignore[union-attr]
+
+    def context_save(self):
+        """V2-3-5: 保存当前 CPU 上下文（基于 uc_context_save）。
+
+        用于 SEH/fiber 切换等需要寄存器快照的场景，避免逐字段 reg_read。
+        """
+        return self.emu.context_save()  # type: ignore[union-attr]
+
+    def context_restore(self, ctx):
+        """V2-3-5: 恢复之前保存的 CPU 上下文（基于 uc_context_restore）。"""
+        self.emu.context_restore(ctx)  # type: ignore[union-attr]
+
+    def context_update(self, ctx, reg, val):
+        """V2-3-5: 在已保存的上下文中更新单个寄存器值（无需恢复后再写）。"""
+        ereg = self.regs.get(reg)
+        if not ereg:
+            raise EmuEngineError(f"Unknown register: {reg}")
+        ctx.reg_write(ereg, val)
+
     def stop(self):
         """Stop the emulation engine"""
         return self.emu.emu_stop()  # type: ignore[union-attr]
@@ -266,9 +322,15 @@ class EmuEngine:
         P0-1: 将 code hook 回调加入列表，仅向 Unicorn 注册一个原生
         UC_HOOK_CODE 分发器，由分发器依次调用所有回调，避免每条指令
         触发多次 C→Python 回调。回调签名保持 (eng, addr, size, ctx)。
-        返回分发器句柄（所有 code hook 共享同一句柄）。
+        V2-3-2: 返回 per-hook 独立句柄，使 hook_enable/hook_disable
+        可单独控制每个 code hook（底层仍共享单个原生分发器）。
         """
         self._code_hooks.append((callback, begin, end))
+        index = len(self._code_hooks) - 1
+        self._code_hook_seq += 1
+        # 句柄置于 0x40000000+ 段以避免与 unicorn 原生 hook 句柄碰撞
+        handle = 0x40000000 + self._code_hook_seq
+        self._code_hook_handles[handle] = index
         if self._code_dispatch_id is None:
             self._code_dispatch_cb = UC_HOOK_CODE_CB(self._dispatch_code_hooks)
             ptr = ct.cast(self._code_dispatch_cb, ct.c_void_p)
@@ -285,20 +347,39 @@ class EmuEngine:
                 raise uc.UcError(rv)
             self._code_dispatch_id = hook_id.value
             self._callbacks[self._code_dispatch_id] = ToggleableHook(self._code_dispatch_cb)
-        return self._code_dispatch_id
+        return handle
 
     def _dispatch_code_hooks(self, eng, addr, size, ctx=None):
-        """P0-1: 单分发器——按注册顺序依次调用所有 code hook（含范围过滤）"""
-        for cb, begin, end in self._code_hooks:
-            # begin > end（如默认 begin=1, end=0）表示作用于全部地址
-            if begin <= end and (addr < begin or addr > end):
-                continue
-            cb(eng, addr, size, ctx)
+        """P0-1/V2-3-2: 单分发器——按注册顺序依次调用所有 code hook。
+
+        V2-3-2: 跳过被 hook_disable 禁用的 hook（按 index 查询），避免
+        无谓的 Python 回调跨 C 边界；同时保留 begin/end 范围过滤。
+        """
+        disabled = self._code_hook_disabled
+        if not disabled:
+            # 快速路径：无禁用 hook，避免 enumerate 索引开销
+            for cb, begin, end in self._code_hooks:
+                # begin > end（如默认 begin=1, end=0）表示作用于全部地址
+                if begin <= end and (addr < begin or addr > end):
+                    continue
+                cb(eng, addr, size, ctx)
+        else:
+            for index, (cb, begin, end) in enumerate(self._code_hooks):
+                if index in disabled:
+                    continue
+                if begin <= end and (addr < begin or addr > end):
+                    continue
+                cb(eng, addr, size, ctx)
 
     def hook_enable(self, hook_handle):
         """
         Enable a previously disabled hook
         """
+        # V2-3-2: code hook 使用 per-hook 句柄，单独启用
+        idx = self._code_hook_handles.get(hook_handle)
+        if idx is not None:
+            self._code_hook_disabled.discard(idx)
+            return
         hook = self._callbacks.get(hook_handle)
         if hook:
             return hook.enable()
@@ -307,6 +388,11 @@ class EmuEngine:
         """
         Disable a previously enabled hook
         """
+        # V2-3-2: code hook 使用 per-hook 句柄，单独禁用
+        idx = self._code_hook_handles.get(hook_handle)
+        if idx is not None:
+            self._code_hook_disabled.add(idx)
+            return
         hook = self._callbacks.get(hook_handle)
         if hook:
             return hook.disable()
@@ -323,7 +409,9 @@ class EmuEngine:
             except Exception:
                 pass
         self._callbacks.clear()
-        # P0-1: 重置 code hook 单分发器状态
+        # P0-1/V2-3-2: 重置 code hook 单分发器状态与 per-hook 句柄表
         self._code_hooks = []
         self._code_dispatch_id = None
         self._code_dispatch_cb = None
+        self._code_hook_handles = {}
+        self._code_hook_disabled = set()

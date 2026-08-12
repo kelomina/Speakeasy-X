@@ -43,11 +43,10 @@ class Shlwapi(api.ApiHandler):
             LPCSTR pszPath
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         (pszPath,) = argv
 
-        cw = self.get_char_width(ctx)
         pn = ""
         rv = False
         if pszPath:
@@ -67,11 +66,10 @@ class Shlwapi(api.ApiHandler):
             PCSTR pszSrch
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         hay, needle = argv
 
-        cw = self.get_char_width(ctx)
 
         if hay:
             _hay = self.read_mem_string(hay, cw)
@@ -97,11 +95,10 @@ class Shlwapi(api.ApiHandler):
             PCSTR pszSrch
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         hay, needle = argv
 
-        cw = self.get_char_width(ctx)
 
         if hay:
             _hay = self.read_mem_string(hay, cw)
@@ -127,9 +124,8 @@ class Shlwapi(api.ApiHandler):
           LPCSTR pszPath
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (pszPath,) = argv
-        cw = self.get_char_width(ctx)
         s = self.read_mem_string(pszPath, cw)
         argv[0] = s
         idx1 = s.rfind("\\")
@@ -149,10 +145,9 @@ class Shlwapi(api.ApiHandler):
         PCWSTR psz2
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         psz1, psz2 = argv
 
-        cw = self.get_char_width(ctx)
         s1 = self.read_mem_string(psz1, cw)
         s2 = self.read_mem_string(psz2, cw)
         rv = 1
@@ -172,9 +167,8 @@ class Shlwapi(api.ApiHandler):
           LPCSTR pszPath
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (pszPath,) = argv
-        cw = self.get_char_width(ctx)
         s = self.read_mem_string(pszPath, cw)
         argv[0] = s
         idx = s.rfind("\\")
@@ -191,9 +185,8 @@ class Shlwapi(api.ApiHandler):
           LPSTR pszPath
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (pszPath,) = argv
-        cw = self.get_char_width(ctx)
         s = self.read_mem_string(pszPath, cw)
         argv[0] = s
         idx1 = s.rfind("\\")
@@ -214,9 +207,8 @@ class Shlwapi(api.ApiHandler):
         LPSTR pszPath
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (pszPath,) = argv
-        cw = self.get_char_width(ctx)
         s = self.read_mem_string(pszPath, cw)
         argv[0] = s
         mod_name = ntpath.basename(s) + "\x00"
@@ -263,11 +255,10 @@ class Shlwapi(api.ApiHandler):
           ...
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         argv = emu.get_func_argv(e_arch.CALL_CONV_CDECL, 3)
         buf, max_buf_size, fmt = argv
 
-        cw = self.get_char_width(ctx)
 
         fmt_str = self.read_mem_string(fmt, cw)
         fmt_cnt = self.get_va_arg_count(fmt_str)
@@ -295,9 +286,8 @@ class Shlwapi(api.ApiHandler):
           LPCSTR pszMore
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         pszPath, pszMore = argv
-        cw = self.get_char_width(ctx)
         path = self.read_mem_string(pszPath, cw)
         more = self.read_mem_string(pszMore, cw)
         argv[0] = path
@@ -325,9 +315,8 @@ class Shlwapi(api.ApiHandler):
         """
         BOOL PathRemoveFileSpec(LPTSTR pszPath);
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (pszPath,) = argv
-        cw = self.get_char_width(ctx)
         s = self.read_mem_string(pszPath, cw)
         idx = s.rfind("\\")
         if idx == -1:
@@ -342,9 +331,8 @@ class Shlwapi(api.ApiHandler):
         """
         LPTSTR PathAddBackslash(LPTSTR pszPath);
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (pszPath,) = argv
-        cw = self.get_char_width(ctx)
         s = self.read_mem_string(pszPath, cw)
         if not s.endswith("\\"):
             s += "\\"
@@ -362,10 +350,9 @@ class Shlwapi(api.ApiHandler):
           [in]      LPCSTR pszExt
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         pszPath, pszExt = argv
 
-        cw = self.get_char_width(ctx)
         path = self.read_mem_string(pszPath, cw)
 
         ext = self.read_mem_string(pszExt, cw)

@@ -145,7 +145,9 @@ class Ntoskrnl(api.ApiHandler):
         fmt_str = self.read_string(fmt)
         fmt_cnt = self.get_va_arg_count(fmt_str)
 
-        _argv = emu.get_func_argv(_arch.CALL_CONV_CDECL, 1 + fmt_cnt)[1:]
+        # V1-S-10: use offset=1 to fetch only the trailing variadic args instead
+        # of re-scanning the leading fmt arg via a second full get_func_argv call.
+        _argv = emu.get_func_argv(_arch.CALL_CONV_CDECL, 1 + fmt_cnt, offset=1)
         fin = self.do_str_format(fmt_str, _argv)
         argv.clear()
         argv.append(fin)
@@ -168,7 +170,8 @@ class Ntoskrnl(api.ApiHandler):
         fmt_str = self.read_string(fmt)
         fmt_cnt = self.get_va_arg_count(fmt_str)
 
-        _argv = emu.get_func_argv(_arch.CALL_CONV_CDECL, 3 + fmt_cnt)[3:]
+        # V1-S-10: skip the 3 fixed leading args (ComponentId, Level, Format)
+        _argv = emu.get_func_argv(_arch.CALL_CONV_CDECL, 3 + fmt_cnt, offset=3)
 
         fin = self.do_str_format(fmt_str, _argv)
 
@@ -781,7 +784,7 @@ class Ntoskrnl(api.ApiHandler):
             self.write_string(fmt_str, buf)
             return len(fmt_str)
 
-        _argv = emu.get_func_argv(_arch.CALL_CONV_CDECL, 2 + fmt_cnt)[2:]
+        _argv = emu.get_func_argv(_arch.CALL_CONV_CDECL, 2 + fmt_cnt, offset=2)
         fin = self.do_str_format(fmt_str, _argv)
 
         self.write_string(fin, buf)
@@ -806,7 +809,7 @@ class Ntoskrnl(api.ApiHandler):
             self.write_string(fmt_str[: cnt - 1], buf)
             return len(fmt_str)
 
-        _argv = emu.get_func_argv(_arch.CALL_CONV_CDECL, 3 + fmt_cnt)[3:]
+        _argv = emu.get_func_argv(_arch.CALL_CONV_CDECL, 3 + fmt_cnt, offset=3)
         fin = self.do_str_format(fmt_str, _argv)
 
         self.write_string(fin, buf)
@@ -2296,7 +2299,7 @@ class Ntoskrnl(api.ApiHandler):
             self.write_wide_string(fmt_str, buf)
             return len(fmt_str)
 
-        argv = emu.get_func_argv(_arch.CALL_CONV_CDECL, 3 + fmt_cnt)[3:]
+        argv = emu.get_func_argv(_arch.CALL_CONV_CDECL, 3 + fmt_cnt, offset=3)
         fin = self.do_str_format(fmt_str, argv)
 
         self.write_wide_string(fin, buf)
@@ -2747,10 +2750,11 @@ class Ntoskrnl(api.ApiHandler):
         if ad:
             argv[1] = " | ".join(ad)
 
-        npath = name
-        if name.startswith("\\??\\"):
-            npath = name.strip("\\??\\")
-        npath = npath.rstrip("\\")
+        # NOTE: str.strip(chars) treats chars as a *character set*, not a substring.
+        # Using name.strip("\\??\\") would erroneously strip any leading/trailing
+        # '\' or '?' characters (e.g. trailing '?', extra '\' in path components).
+        # Use removeprefix to perform a clean substring removal instead.
+        npath = name.removeprefix("\\??\\").rstrip("\\")
 
         obj = self.get_object_from_name(name)
         if obj:
@@ -2825,10 +2829,9 @@ class Ntoskrnl(api.ApiHandler):
             hfile = self.get_object_handle(obj)
         else:
             # Is a file being opened?
-            npath = path
-            if path.startswith("\\??\\"):
-                npath = path.strip("\\??\\")
-            npath = npath.rstrip("\\")
+            # Use removeprefix (not str.strip) to avoid stripping '\'/'?' chars
+            # that are legitimately present elsewhere in the path.
+            npath = path.removeprefix("\\??\\").rstrip("\\")
             hfile = emu.file_open(npath)
             if hfile:
                 nts = ddk.STATUS_SUCCESS
@@ -2884,13 +2887,25 @@ class Ntoskrnl(api.ApiHandler):
 
         s1 = self.mem_read(s1, Length)
         s2 = self.mem_read(s2, Length)
-        i = 0
-        for i in range(Length):
-            if s1[i] != s2[i]:
-                break
-        i += 1
 
-        return i
+        # Fast path: a single C-level bytes equality check is far cheaper than
+        # iterating byte-by-byte in Python. When the buffers are fully equal,
+        # return Length directly.
+        if s1 == s2:
+            return Length
+
+        # Slow path: locate the first mismatching byte via bisection on slices.
+        # Each slice comparison is performed at C level, yielding O(log n)
+        # comparisons instead of an O(n) Python loop.
+        # Preserves the historical return convention (first_mismatch_index + 1).
+        lo, hi = 0, Length
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if s1[:mid + 1] == s2[:mid + 1]:
+                lo = mid + 1
+            else:
+                hi = mid
+        return lo + 1
 
     @apihook("RtlQueryRegistryValuesEx", argc=5)
     def RtlQueryRegistryValuesEx(self, emu, argv, ctx: api.ApiContext = None):

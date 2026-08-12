@@ -49,10 +49,9 @@ class Wininet(api.ApiHandler):
           DWORD  dwFlags
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         ua, access, proxy, bypass, flags = argv
 
-        cw = self.get_char_width(ctx)
         if ua:
             ua = self.read_mem_string(ua, cw)
             argv[0] = ua
@@ -81,10 +80,9 @@ class Wininet(api.ApiHandler):
           DWORD_PTR     dwContext
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hnd, server, port, user, password, service, flags, dwctx = argv
 
-        cw = self.get_char_width(ctx)
         if server:
             server = self.read_mem_string(server, cw)
             argv[1] = server
@@ -118,10 +116,9 @@ class Wininet(api.ApiHandler):
           DWORD_PTR dwContext
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hnd, verb, objname, ver, ref, accepts, flags, dwctx = argv
 
-        cw = self.get_char_width(ctx)
         if verb:
             verb = self.read_mem_string(verb, cw)
             argv[1] = verb
@@ -153,11 +150,10 @@ class Wininet(api.ApiHandler):
             LPURL_COMPONENTSA lpUrlComponents
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpszUrl, dwUrlLength, dwFlags, lpUrlComponents = argv
 
         rv = False
-        cw = self.get_char_width(ctx)
 
         if lpszUrl and lpUrlComponents:
             url = self.read_mem_string(lpszUrl, cw)
@@ -233,12 +229,11 @@ class Wininet(api.ApiHandler):
           DWORD     dwOptionalLength
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hnd, headers, hdrlen, lpOptional, dwOptionalLength = argv
 
         body = b""
 
-        cw = self.get_char_width(ctx)
         if headers:
             headers = self.read_mem_string(headers, cw)
             argv[1] = headers
@@ -335,9 +330,8 @@ class Wininet(api.ApiHandler):
             LPDWORD   lpdwIndex
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hRequest, dwInfoLevel, lpBuffer, lpdwBufferLength, lpdwIndex = argv
-        cw = self.get_char_width(ctx)
 
         rv = False
         info_str = windefs.get_header_query(dwInfoLevel)
@@ -408,9 +402,8 @@ class Wininet(api.ApiHandler):
             DWORD_PTR dwContext
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hInternet, lpszUrl, lpszHeaders, dwHeadersLength, dwFlags, dwContext = argv
-        cw = self.get_char_width(ctx)
         if lpszUrl:
             url = self.read_mem_string(lpszUrl, cw)
             argv[1] = url

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from functools import lru_cache
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -619,6 +620,7 @@ def model_to_dict(model: BaseModel) -> dict[str, Any]:
     return model.model_dump(mode="python")
 
 
+@lru_cache(maxsize=1)
 def get_default_config() -> SpeakeasyConfig:
     return SpeakeasyConfig()
 

@@ -246,11 +246,13 @@ class _PeParser(pefile.PE):
     def _hash_pe(self, path=None, data=None):
         hasher = hashlib.sha256()
         buf = b""
-        if path:
+        # V2-9-1: 优先使用内存中的 data 计算哈希，避免 data 已在内存时仍重新读盘；
+        # 同时保证哈希内容与 pefile 实际解析的 bytes 一致（pefile 优先使用 data）。
+        if data is not None:
+            buf = data
+        elif path:
             with open(path, "rb") as f:
                 buf = f.read()
-        elif data:
-            buf = data
 
         hasher.update(buf)
         self.file_size = len(buf)

@@ -27,9 +27,6 @@ dependencies = [
     "pycryptodome",
     "pydantic>=2.0",
     "rich",
-    "scikit-learn>=1.0.0",
-    "numpy>=1.20.0",
-    "joblib",
 ]
 
 [project.optional-dependencies]

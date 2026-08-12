@@ -3,6 +3,7 @@ import os
 import tempfile
 import zlib
 from base64 import b64decode, b64encode
+from typing import Any
 
 from speakeasy.report import DataArtifact
 
@@ -18,6 +19,9 @@ class ArtifactStore:
         self._artifacts: dict[str, DataArtifact] = {}
         # 增量合并用的原始缓冲区，键为 sha256；延迟压缩到 to_report_data
         self._raw: dict[str, bytearray] = {}
+        # V2-14-2: 并行的 sha256 状态，键与 _raw 对齐；每次 append_bytes 只 update
+        # 新增数据，总开销 O(N) 而非对全量缓冲重算的 O(N²)
+        self._hash_states: dict[str, Any] = {}
         # 大产物落盘的临时文件路径列表，用于 cleanup
         self._temp_files: list[str] = []
 
@@ -81,24 +85,47 @@ class ArtifactStore:
     def append_bytes(self, ref: str, data: bytes, limit: int | None = None) -> str:
         """增量追加到已有产物的原始缓冲区，延迟压缩。
 
-        首次追加时解压一次以建立原始缓冲区，后续追加 O(1) 均摊。
+        维护并行的 hashlib sha256 状态：每次追加只 update 新增数据，
+        总开销 O(N) 而非对全量缓冲重算的 O(N²)。
         最终压缩在 to_report_data 中统一完成。
         """
         if ref in self._raw:
             raw = self._raw[ref]
+            h = self._hash_states.get(ref)
+            if h is None:
+                # 防御：状态缺失时从现有缓冲重建
+                h = hashlib.sha256()
+                h.update(bytes(raw))
         else:
-            raw = bytearray(self.get_bytes(ref))
+            existing = self.get_bytes(ref)
+            raw = bytearray(existing)
+            h = hashlib.sha256()
+            h.update(existing)
+
         raw.extend(data)
+        truncated = False
         if limit and len(raw) > limit:
             del raw[limit:]
-        new_digest = hashlib.sha256(bytes(raw)).hexdigest()
+            truncated = True
+
+        if truncated:
+            # 截断后无法增量回退，从截断后的全量缓冲重算哈希
+            h = hashlib.sha256()
+            h.update(bytes(raw))
+        else:
+            h.update(data)
+
+        new_digest = h.hexdigest()
         if new_digest != ref:
             self._raw[new_digest] = raw
             self._raw.pop(ref, None)
+            self._hash_states[new_digest] = h
+            self._hash_states.pop(ref, None)
             # 清理旧 artifact（可能来自 _artifacts），避免报告中残留过时数据
             self._remove_artifact(ref)
         else:
             self._raw[ref] = raw
+            self._hash_states[ref] = h
         return new_digest
 
     def get_bytes(self, artifact_ref: str) -> bytes:
@@ -125,6 +152,8 @@ class ArtifactStore:
                 else:
                     self._store_compressed(digest, data)
         self._raw.clear()
+        # 缓冲已压缩落盘，并行 hash 状态不再有效（后续 append 会经 get_bytes 重建）
+        self._hash_states.clear()
         return dict(self._artifacts)
 
     def cleanup(self) -> None:

@@ -81,6 +81,9 @@ class MemoryManager:
         self._sorted_reserve_maps: list[MemMap] = []  # self.mem_reserves 按 base 升序的副本
         # P0-9: 空闲区间有序表，支持 get_valid_ranges 二分查找，替代页展开
         self._free_ranges: list[list[int]] = []      # 每项 [base, size]，按 base 升序
+        # V2-2-1: 脏标记缓存，仅在映射变更时置 True；get_valid_ranges 仅在 dirty 时重建。
+        # 初始 True 保证首次调用从引擎实际状态重建。
+        self._free_ranges_dirty: bool = True
 
     # ---- P0-4: 排序结构维护 ----
     def _rebuild_sorted_bases(self):
@@ -105,9 +108,9 @@ class MemoryManager:
             bases.pop(idx)
             maps.pop(idx)
 
-    # ---- P0-9: 空闲区间表维护 ----
-    # 注意：因 winemu 等处可能直接调用 emu_eng.mem_map（绕过本类），
-    # get_valid_ranges 每次会基于 emu_eng.mem_regions()+mem_reserves 重建 _free_ranges 以保证正确性；
+    # ---- P0-9 / V2-2-1: 空闲区间表维护 ----
+    # 注意：因 winemu 等处可能直接调用 emu_eng.mem_map（绕过本类），外部变更后须调用
+    # invalidate_free_ranges() 置脏；get_valid_ranges 仅在 _free_ranges_dirty 时重建。
     # 以下增量方法在 map/unmap 时同步更新 _free_ranges，保持调用间隙的一致性。
     def _rebuild_free_ranges(self):
         # 从 emu_eng 已映射区间与 mem_reserves 计算空闲区间补集（按区间而非页展开，O(n log n)）
@@ -191,6 +194,16 @@ class MemoryManager:
             return
         free.insert(idx, [base, merged_end - base])
 
+    def invalidate_free_ranges(self):
+        """
+        Mark the free ranges cache as stale.
+
+        V2-2-1: Call this whenever the emulated address space is mutated outside
+        of this manager (e.g. direct emu_eng.mem_map/mem_unmap calls), so that the
+        next get_valid_ranges rebuilds _free_ranges from the engine's actual state.
+        """
+        self._free_ranges_dirty = True
+
     def _hook_mem_map_dispatch(self, mm):
         hl = self.hooks.get(common.HOOK_MEM_MAP, [])
         for mem_map_hook in hl:
@@ -217,6 +230,7 @@ class MemoryManager:
                     self.block_base, self.block_size = block
 
                     self.emu_eng.mem_map(self.block_base, self.block_size)  # type: ignore[union-attr]
+                    self._free_ranges_dirty = True
                     self._consume_free_range(self.block_base, self.block_size)
                     self.block_offset = 0
                     addr = self.block_base + self.block_offset
@@ -239,6 +253,7 @@ class MemoryManager:
             block_size = size
         mm = MemMap(base, size, tag, perms, flags, base, block_size, shared, process)
         self.emu_eng.mem_map(base, size, perms=perms)  # type: ignore[union-attr]
+        self._free_ranges_dirty = True
         self._consume_free_range(base, size)
         self.maps.append(mm)
         self._sorted_insert(mm, self._sorted_bases, self._sorted_maps)
@@ -265,6 +280,7 @@ class MemoryManager:
                 [self.maps.remove(mm) for mm in ml]  # type: ignore[func-returns-value]  # list comp used for side effect
                 # 批量删除后重建排序结构以保持不变量
                 self._rebuild_sorted_bases()
+                self._free_ranges_dirty = True
 
     def mem_remap(self, frm, to):
         """
@@ -295,6 +311,7 @@ class MemoryManager:
 
         self.mem_write(newmem, contents)
 
+        self._free_ranges_dirty = True
         return newmem
 
     def mem_unmap(self, base, size):
@@ -302,6 +319,7 @@ class MemoryManager:
         Free a block of emulated memory
         """
         self.emu_eng.mem_unmap(base, size)  # type: ignore[union-attr]
+        self._free_ranges_dirty = True
         self._restore_free_range(base, size)
 
     def mem_write(self, addr, data):
@@ -327,6 +345,7 @@ class MemoryManager:
         Remove an entire memory region that may not have blocks allocated within it
         """
         self.emu_eng.mem_unmap(base, size)  # type: ignore[union-attr]
+        self._free_ranges_dirty = True
         self._restore_free_range(base, size)
 
     def get_address_map(self, address):
@@ -394,6 +413,7 @@ class MemoryManager:
         self.mem_reserves.append(mm)
         self._sorted_insert(mm, self._sorted_reserve_bases, self._sorted_reserve_maps)
         # 预留区同样占用空闲地址空间
+        self._free_ranges_dirty = True
         self._consume_free_range(base, size)
         return base
 
@@ -420,6 +440,8 @@ class MemoryManager:
             if mapped_base == r.base:
                 self.mem_reserves.remove(r)
                 self._sorted_remove(r, self._sorted_reserve_bases, self._sorted_reserve_maps)
+                # mem_reserves 变更影响 _free_ranges，须在 mem_map 内的 get_valid_ranges 之前置脏
+                self._free_ranges_dirty = True
                 return self.mem_map(r.size, base=r.base, perms=r.prot, tag=r.tag)
         return None
 
@@ -449,10 +471,13 @@ class MemoryManager:
         elif total % page_size:
             total += page_size - (total % page_size)
 
-        # P0-9: 基于空闲区间表二分查找，替代页展开。
-        # 每次按 emu_eng.mem_regions()+mem_reserves 重建 _free_ranges，
-        # 保证与引擎实际状态同步（含 winemu 等处直接 emu_eng.mem_map 的情况）。
-        self._rebuild_free_ranges()
+        # P0-9 / V2-2-1: 基于空闲区间表二分查找，替代页展开。
+        # 仅在脏标记置位时重建 _free_ranges（保证与引擎实际状态同步，含 winemu 等处
+        # 直接 emu_eng.mem_map 的情况），否则复用增量维护的缓存。连续无写入的
+        # get_valid_ranges 调用只需首次重建。
+        if self._free_ranges_dirty:
+            self._rebuild_free_ranges()
+            self._free_ranges_dirty = False
         free = self._free_ranges
         if not free:
             raise Exception("Failed to allocate emulator memory")

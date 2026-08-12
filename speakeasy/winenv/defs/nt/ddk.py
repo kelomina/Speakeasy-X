@@ -1,5 +1,7 @@
 # Copyright (C) 2020 FireEye, Inc. All Rights Reserved.
 
+from functools import lru_cache
+
 from speakeasy.struct import Enum
 
 WINDOWS_CONSOLE = 3
@@ -180,29 +182,41 @@ PE32_BIT = 0x0100
 PE32_PLUS_BIT = 0x0200
 
 
+# Module-level snapshot of (name, value) pairs for all int constants defined
+# in this module. Built once at import time so that get_flag_defines /
+# get_const_defines do not have to iterate globals() on every call. Iteration
+# order matches the order constants were defined in source (Python 3.7+
+# dict ordering), preserving the historical output ordering of these helpers.
+_INT_CONSTANTS = tuple(
+    (name, value)
+    for name, value in globals().items()
+    if isinstance(value, int) and not name.startswith("_")
+)
+
+
+@lru_cache(maxsize=256)
 def get_flag_defines(flags, prefix=""):
     defs = []
-    for k, v in globals().items():
-        if isinstance(v, int):
-            if v & flags:
-                if prefix:
-                    if k.startswith(prefix):
-                        defs.append(k)
-                else:
+    for k, v in _INT_CONSTANTS:
+        if v & flags:
+            if prefix:
+                if k.startswith(prefix):
                     defs.append(k)
+            else:
+                defs.append(k)
     return defs
 
 
+@lru_cache(maxsize=256)
 def get_const_defines(const, prefix=""):
     defs = []
-    for k, v in globals().items():
-        if isinstance(v, int):
-            if v == const:
-                if prefix:
-                    if k.startswith(prefix):
-                        defs.append(k)
-                else:
+    for k, v in _INT_CONSTANTS:
+        if v == const:
+            if prefix:
+                if k.startswith(prefix):
                     defs.append(k)
+            else:
+                defs.append(k)
     return defs
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import bisect
 import ntpath
 import os
 from dataclasses import dataclass, field
@@ -27,6 +28,11 @@ class PeMetadata:
     magic: int
     resources: list[ResourceEntry] = field(default_factory=list)
     string_table: dict[int, str] = field(default_factory=dict)  # For LoadString
+    # V2-9-1: 承载 hash/arch/pe_type 等元数据，避免 load_module 第二次完整解析 PE
+    sha256: str = ""
+    file_size: int = 0
+    pe_type: str = "unknown"
+    path: str = ""
 
 
 @dataclass
@@ -121,6 +127,10 @@ class RuntimeModule:
         self.loader = image.loader
         self.name = image.name
         self.sections = image.sections
+        # V2-9-3: 构造时预排序区间表 + 平行起始地址列表，供 get_section_for_addr 做 O(log n) bisect 查找。
+        # sections 在构造后不再变更（全代码库仅此处赋值），故可安全缓存。
+        self._sect_sorted: list[SectionEntry] = sorted(self.sections, key=lambda s: s.virtual_address)
+        self._sect_starts: list[int] = [s.virtual_address for s in self._sect_sorted]
 
     def __repr__(self) -> str:
         loader_type = type(self.loader).__name__ if self.loader is not None else "None"
@@ -155,9 +165,16 @@ class RuntimeModule:
 
     def get_section_for_addr(self, addr: int) -> SectionEntry | None:
         offset = addr - self.base
-        for sect in self.sections:
-            if sect.virtual_address <= offset < sect.virtual_address + sect.virtual_size:
-                return sect
+        if offset < 0 or not self._sect_starts:
+            return None
+        # V2-9-3: bisect_right 找到最后一个 virtual_address <= offset 的区间，O(log n)。
+        # 合法 PE 的 section 区间互不重叠，故该候选即为包含 offset 的 section。
+        idx = bisect.bisect_right(self._sect_starts, offset) - 1
+        if idx < 0:
+            return None
+        sect = self._sect_sorted[idx]
+        if sect.virtual_address <= offset < sect.virtual_address + sect.virtual_size:
+            return sect
         return None
 
     def get_tls_callbacks(self) -> list[int]:
@@ -168,6 +185,11 @@ class RuntimeModule:
 
 
 class PeLoader:
+    # V2-9-1: path→PE 解析缓存。键为 (abspath, base_override)，
+    # 值为已解析（必要时已 rebase）的 _PeParser 实例，避免对同一 PE 重复解析。
+    # base_override 纳入键以隔离 rebase 产生的可变状态。
+    _PE_CACHE: dict[tuple[str, int | None], Any] = {}
+
     def __init__(
         self,
         *,
@@ -185,17 +207,33 @@ class PeLoader:
     def make_image(self) -> LoadedImage:
         from speakeasy.windows.common import _PeParser
 
-        pe = _PeParser(path=self._path, data=self._data, imp_id=0xFEEDF00C, imp_step=4)
+        # V2-9-1: 仅当提供 path 时启用缓存；data-only 加载（无 path）无法稳定建键，跳过缓存。
+        cache_key: tuple[str, int | None] | None = None
+        if self._path is not None:
+            cache_key = (os.path.abspath(self._path), self._base_override)
+            pe = PeLoader._PE_CACHE.get(cache_key)
+            if pe is None:
+                pe = _PeParser(path=self._path, data=self._data, imp_id=0xFEEDF00C, imp_step=4)
+                PeLoader._PE_CACHE[cache_key] = pe
+        else:
+            pe = _PeParser(path=self._path, data=self._data, imp_id=0xFEEDF00C, imp_step=4)
         self._pe_obj = pe
 
         if self._base_override is not None and self._base_override != pe.base:
             pe.rebase(self._base_override)
 
+        # V2-9-1: 同时计算 module_type 与 pe_type，二者语义一致但 default 不同
+        #（module_type 默认 "exe" 以保持 RuntimeModule.is_exe() 行为；pe_type 默认 "unknown" 对齐历史 input metadata）。
         module_type = "exe"
+        pe_type = "unknown"
         if pe.is_driver():
             module_type = "driver"
+            pe_type = "driver"
         elif pe.is_dll():
             module_type = "dll"
+            pe_type = "dll"
+        elif pe.is_exe():
+            pe_type = "exe"
 
         base = pe.base
         mapped_image = pe.get_memory_mapped_image(max_virtual_address=0xF0000000)
@@ -277,6 +315,10 @@ class PeLoader:
             timestamp=pe.FILE_HEADER.TimeDateStamp,
             machine=pe.FILE_HEADER.Machine,
             magic=pe.OPTIONAL_HEADER.Magic,
+            sha256=pe.hash,
+            file_size=pe.file_size,
+            pe_type=pe_type,
+            path=pe.path,
         )
 
         if hasattr(pe, "DIRECTORY_ENTRY_RESOURCE"):

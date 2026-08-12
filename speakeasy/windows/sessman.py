@@ -102,14 +102,23 @@ class SessionManager:
         self.sessions: dict[int, Session] = {}
         self.window_classes: dict[int | str, WindowClass] = {}
         self.windows: dict[int | str, Window] = {}
+        # Flat handle -> GuiObject index for O(1) lookup in get_gui_object.
+        # Holds sessions, stations and desktops (the same set the previous
+        # three-level nested scan was able to resolve). Populated below from
+        # the per-level dicts so the index keys stay consistent with the
+        # existing {session/station/desktop} handle allocations.
+        self._handle_index: dict[int, GuiObject] = {}
         self.curr_session: Session | None = None
         self.curr_station: Station | None = None
         self.curr_desktop: Desktop | None = None
         self.config: Any = config
         self.dev_ctx: int = GuiObject.curr_handle
 
-        # create a session 0
+        # create a session 0 and register it in self.sessions. Previously this
+        # was never done, so self.sessions was always empty and get_gui_object
+        # could not resolve any handle (V2-7-7 P0 bug).
         self.curr_session = Session(sess_id=0)
+        self.sessions[self.curr_session.get_handle()] = self.curr_session
 
         # create WinSta0
         self.curr_station = self.curr_session.new_station(name="WinSta0")
@@ -121,6 +130,16 @@ class SessionManager:
 
         # For now lets default to the Default desktop
         self.curr_desktop = default
+
+        # Build the flat handle index from the per-level dicts so get_gui_object
+        # can resolve any session/station/desktop in O(1). The keys are the
+        # same handle values already used by the per-level dicts.
+        for sess_h, sess in self.sessions.items():
+            self._handle_index[sess_h] = sess
+            for stat_h, stat in sess.stations.items():
+                self._handle_index[stat_h] = stat
+                for desk_h, desk in stat.desktops.items():
+                    self._handle_index[desk_h] = desk
 
     def create_window_class(self, class_obj, class_name=None):
         wc = WindowClass(class_obj, class_name)
@@ -154,12 +173,21 @@ class SessionManager:
         return self.curr_station
 
     def get_gui_object(self, handle):
-        for hsess, sess in self.sessions.items():
-            if hsess == handle:
+        # O(1) lookup via the flat handle index built in __init__.
+        obj = self._handle_index.get(handle)
+        if obj is not None:
+            return obj
+        # Fallback to the nested scan over the per-level dicts for any
+        # session/station/desktop created dynamically after __init__.
+        # Iterates dict keys directly (GuiObject.get_handle() mutates the
+        # counter, so it must not be called here).
+        for sess_h, sess in self.sessions.items():
+            if sess_h == handle:
                 return sess
-            for hstat, stat in sess.stations.items():
-                if hstat == handle:
+            for stat_h, stat in sess.stations.items():
+                if stat_h == handle:
                     return stat
-                for hdesk, desk in stat.desktops.items():
-                    if hdesk == handle:
+                for desk_h, desk in stat.desktops.items():
+                    if desk_h == handle:
                         return desk
+        return None

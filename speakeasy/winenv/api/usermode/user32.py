@@ -181,13 +181,12 @@ class User32(api.ApiHandler):
             const WNDCLASSEXA *Arg1
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (Arg1,) = argv
         wclass = windefs.WNDCLASSEX(emu.get_ptr_size())
         wclass = self.mem_cast(wclass, Arg1)
 
         cn = None
-        cw = self.get_char_width(ctx)
         if wclass.lpszClassName:
             cn = self.read_mem_string(wclass.lpszClassName, cw)
 
@@ -333,8 +332,7 @@ class User32(api.ApiHandler):
             LPVOID    lpParam
         );
         """
-        ctx = ctx or {}
-        cw = self.get_char_width(ctx)
+        ctx, cw = self.prepare_ctx(ctx)
         _, cn, wn, _, x, y, width, height, parent, menu, inst, param = argv
         if cn:
             cn = self.read_mem_string(cn, cw)
@@ -370,10 +368,9 @@ class User32(api.ApiHandler):
           LPCTSTR lpCaption,
           UINT    uType
         );"""
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hWnd, lpText, lpCaption, uType = argv
 
-        cw = self.get_char_width(ctx)
 
         if lpText:
             text = self.read_mem_string(lpText, cw)
@@ -412,10 +409,9 @@ class User32(api.ApiHandler):
           int       cchBufferMax
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         hInstance, uID, lpBuffer, ccBufferMax = argv
-        cw = self.get_char_width(ctx)
         size = 0
 
         if hInstance == 0:
@@ -541,12 +537,11 @@ class User32(api.ApiHandler):
           LPCSTR lpString
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         (lpString,) = argv
         rv = 0xC000
 
-        cw = self.get_char_width(ctx)
 
         s = self.read_mem_string(lpString, cw)
         argv[0] = s
@@ -562,8 +557,7 @@ class User32(api.ApiHandler):
           ...
         );
         """
-        ctx = ctx or {}
-        cw = self.get_char_width(ctx)
+        ctx, cw = self.prepare_ctx(ctx)
 
         buf, fmt = emu.get_func_argv(_arch.CALL_CONV_CDECL, 2)
         fmt_str = self.read_mem_string(fmt, cw)
@@ -774,9 +768,8 @@ class User32(api.ApiHandler):
             LPCSTR lpWindowName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpClassName, lpWindowName = argv
-        cw = self.get_char_width(ctx)
         if lpClassName:
             cn = self.read_mem_string(lpClassName, cw)
             argv[0] = cn
@@ -794,10 +787,9 @@ class User32(api.ApiHandler):
             int   nMaxCount
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hnd, pstr, maxc = argv
 
-        cw = self.get_char_width(ctx)
         win_text = "speakeasy window"
         if pstr:
             if cw == 2:
@@ -819,9 +811,8 @@ class User32(api.ApiHandler):
 
     @apihook("wvsprintf", argc=_arch.VAR_ARGS, conv=_arch.CALL_CONV_CDECL)
     def wvsprintf(self, emu, argv, ctx: api.ApiContext = None):
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         buf, fmt, va_list = emu.get_func_argv(_arch.CALL_CONV_CDECL, 3)[:3]
-        cw = self.get_char_width(ctx)
         fmt_str = self.read_mem_string(fmt, cw)
         fmt_cnt = self.get_va_arg_count(fmt_str)
 
@@ -850,10 +841,9 @@ class User32(api.ApiHandler):
             LPCSTR lpsz
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (s,) = argv
         rv = 0
-        cw = self.get_char_width(ctx)
         if s:
             rv = s + cw
         return rv
@@ -866,13 +856,12 @@ class User32(api.ApiHandler):
             LPCSTR lpszCurrent
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         """
         Got this from wine.          
         https://github.com/wine-mirror/wine/blob/a8c1d5c108fc57e4d78e9db126f395c89083a83d/dlls/kernelbase/string.c
         """
         s, c = argv
-        cw = self.get_char_width(ctx)
         while s < c:
             n = s + cw
             if n >= c:
@@ -971,10 +960,9 @@ class User32(api.ApiHandler):
             LPARAM    dwInitParam
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hInstance, lpTemplateName, hWndParent, lpDialogFunc, dwInitParam = argv
         rv = self.get_handle()
-        cw = self.get_char_width(ctx)
         if lpTemplateName:
             tname = self.read_mem_string(lpTemplateName, cw)
             argv[1] = tname
@@ -1288,9 +1276,8 @@ class User32(api.ApiHandler):
             DWORD cchLength
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         _str, cchLength = argv
-        cw = self.get_char_width(ctx)
         val = self.read_mem_string(_str, cw, max_chars=cchLength)
         argv[0] = val
         argv[1] = cchLength
@@ -1305,9 +1292,8 @@ class User32(api.ApiHandler):
             DWORD cchLength
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         _str, cchLength = argv
-        cw = self.get_char_width(ctx)
         val = self.read_mem_string(_str, cw, max_chars=cchLength)
         argv[0] = val
         argv[1] = cchLength
@@ -1321,9 +1307,8 @@ class User32(api.ApiHandler):
             LPSTR lpsz
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (_str,) = argv
-        cw = self.get_char_width(ctx)
         bits = _str.bit_length()
         if bits <= 16:
             if cw == 1:
@@ -1343,9 +1328,8 @@ class User32(api.ApiHandler):
             LPSTR lpsz
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (_str,) = argv
-        cw = self.get_char_width(ctx)
         bits = _str.bit_length()
         if bits <= 16:
             if cw == 1:
@@ -1394,9 +1378,8 @@ class User32(api.ApiHandler):
             ACCESS_MASK dwDesiredAccess
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpszDesktop, dwFlags, fInherit, dwDesiredAccess = argv
-        cw = self.get_char_width(ctx)
         desktop = self.read_mem_string(lpszDesktop, cw)
         argv[0] = desktop
         return self.get_handle()

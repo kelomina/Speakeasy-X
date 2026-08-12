@@ -1,8 +1,10 @@
 # Copyright (C) 2020 FireEye, Inc. All Rights Reserved.
 
+import bisect
 import fnmatch
 import logging
 import re
+import time
 import traceback
 from abc import ABC, abstractmethod
 from typing import Any
@@ -70,6 +72,13 @@ class BinaryEmulator(MemoryManager, ABC):
         self.maps: list[Any] = []
         self.config = config
         self.hooks: dict[int, Any] = {}
+
+        # V2-1-2: 模块按 base 排序的平行结构，支持 get_module_from_addr bisect O(log n) 查找。
+        # 与 self.modules 同步：发现长度不一致时触发懒重建（add_module/load_module 走子类路径，无法在基类 hook）。
+        self._sorted_mod_bases: list[int] = []
+        self._sorted_mods: list[Any] = []
+        # 单槽 LRU 缓存：指令级 tracing hook 重复查找同一地址时直接命中，避免 bisect 调用开销
+        self._mod_addr_lru: tuple[int, Any] | None = None
 
         self.profiler: Profiler = Profiler()
         self.profiler.attach_emulator(self)
@@ -187,15 +196,41 @@ class BinaryEmulator(MemoryManager, ABC):
 
     def start(self, addr, size):
         """
-        Begin emulation
+        Begin emulation.
+
+        V2-1-1: 把 winemu.start() 的 global_deadline + run_timeout wall-clock 超时模式
+        上提到基类作为默认实现。Unicorn 的 emu_start(timeout=...) 在某些平台不可靠，
+        改用 time.monotonic() 计算剩余预算作为 Python 级 deadline 兜底，跨平台防挂起。
+        保留 GDB 旁路：子类设置 gdb_port 时 timeout 设为 0，让调试器自由暂停。
         """
         assert self.emu_eng is not None
         self.set_hooks()
         self._set_emu_hooks()
         if self.profiler:
             self.profiler.set_start_time()
+
+        # GDB 旁路：子类若设置 gdb_port，则禁用 timeout 让调试器自由暂停
+        gdb_port = getattr(self, 'gdb_port', None)
+        configured_timeout = 0 if gdb_port is not None else self.config.timeout
+
+        # 计算 wall-clock 预算：configured_timeout > 0 时为剩余毫秒，否则 0 表示不限
+        if configured_timeout > 0:
+            global_deadline = time.monotonic() + configured_timeout
+            remaining = global_deadline - time.monotonic()
+            if remaining <= 0:
+                logger.error("* Timeout of %d sec(s) reached before start.", configured_timeout)
+                self.on_emu_complete()
+                return
+            # max(0.1, remaining) 与 winemu.start() 一致，避免 0 触发 Unicorn 立即返回
+            run_timeout = max(0.1, remaining)
+        else:
+            run_timeout = configured_timeout
+
         try:
-            self.emu_eng.start(addr, timeout=self.config.timeout, count=self.config.max_instructions)
+            self.emu_eng.start(addr, timeout=run_timeout, count=self.config.max_instructions)
+            if self.profiler and run_timeout > 0:
+                if self.profiler.get_run_time() > run_timeout:
+                    logger.error("* Timeout of %d sec(s) reached.", run_timeout)
         except Exception:
             if self.profiler:
                 self.profiler.record_error_event(ErrorInfo(type="internal_error", traceback=traceback.format_exc()))
@@ -354,15 +389,22 @@ class BinaryEmulator(MemoryManager, ABC):
         self.mem_write(curr_sp, r)
         self.reg_write(sp, curr_sp)
 
-    def get_func_argv(self, callconv, argc):
+    def get_func_argv(self, callconv, argc, offset=0):
         """
         Get the arguments for a function given the supplied calling convention
+
+        V1-S-10: The `offset` parameter skips the first `offset` positional args
+        (whether they reside in registers or on the stack) so variadic callees
+        such as DbgPrint / sprintf that already consumed the leading fixed args
+        via a prior get_func_argv call can fetch only the trailing variadic tail
+        without re-scanning the entire argv list.
         """
         argv = []
         ptr_size = self.get_ptr_size()
         arch = self.get_arch()
-        nargs = argc
+        nargs = argc - offset
         endian = "little"
+        reg_skip = offset  # registers (or leading stack slots) to skip before appending
 
         # Handle calling conventions using floats
         if arch in (e_arch.ARCH_X86, e_arch.ARCH_AMD64):
@@ -372,6 +414,9 @@ class BinaryEmulator(MemoryManager, ABC):
                 ):
                     if nargs == 0:
                         break
+                    if reg_skip > 0:
+                        reg_skip -= 1
+                        continue
                     val = self.reg_read(r)
                     argv.append(val)
                     nargs -= 1
@@ -379,12 +424,16 @@ class BinaryEmulator(MemoryManager, ABC):
         if arch == e_arch.ARCH_X86:
             sp = self.reg_read(e_arch.X86_REG_ESP)
             if callconv == e_arch.CALL_CONV_FASTCALL:
-                if nargs >= 2:
-                    argv.append(self.reg_read(e_arch.X86_REG_ECX))
-                    argv.append(self.reg_read(e_arch.X86_REG_EDX))
-                    nargs -= 2
-                elif nargs == 1:
-                    argv.append(self.reg_read(e_arch.X86_REG_ECX))
+                # x86 FASTCALL: first 2 args in ECX/EDX, rest on stack.
+                # Loop form (V1-S-10) preserves original semantics:
+                #   nargs>=2 -> read both, nargs==1 -> read ECX only.
+                for r in (e_arch.X86_REG_ECX, e_arch.X86_REG_EDX):
+                    if nargs == 0:
+                        break
+                    if reg_skip > 0:
+                        reg_skip -= 1
+                        continue
+                    argv.append(self.reg_read(r))
                     nargs -= 1
         elif arch == e_arch.ARCH_AMD64:
             sp = self.reg_read(e_arch.AMD64_REG_RSP)
@@ -395,6 +444,9 @@ class BinaryEmulator(MemoryManager, ABC):
             ):
                 if nargs == 0:
                     break
+                if reg_skip > 0:
+                    reg_skip -= 1
+                    continue
                 val = self.reg_read(r)
                 argv.append(val)
                 nargs -= 1
@@ -403,6 +455,9 @@ class BinaryEmulator(MemoryManager, ABC):
 
         # Skip past the saved ret addr
         sp += ptr_size
+        # V1-S-10: skip stack slots for any offset args not consumed by register reads
+        if reg_skip > 0:
+            sp += reg_skip * ptr_size
         for i in range(nargs):
             ptr = self.mem_read(sp, ptr_size)
             argv.append(int.from_bytes(ptr, endian))  # type: ignore[arg-type]  # endian is always "little"
@@ -894,15 +949,50 @@ class BinaryEmulator(MemoryManager, ABC):
         else:
             raise EmuException("Unsupported architecture")
 
+    def _rebuild_sorted_mods(self):
+        """
+        V2-1-2: 重建模块按 base 升序的平行结构，保持与 self.modules 同步。
+        子类的 add_module/load_module 走各自路径直接 append 到 self.modules，
+        基类无法 hook，故采用与 winemu._rebuild_module_index 一致的懒重建策略：
+        发现 _sorted_mods 长度与 self.modules 不一致时调用。
+        """
+        s_mods = sorted(self.modules, key=lambda m: m.base)
+        self._sorted_mods = s_mods
+        self._sorted_mod_bases = [m.base for m in s_mods]
+        self._mod_addr_lru = None
+
     def get_module_from_addr(self, addr):
         """
-        If the supplied address belongs to a module, return it
+        If the supplied address belongs to a module, return it.
+
+        V2-1-2: 用 bisect.bisect_right 做 O(log n) 区间查找，替代原 O(n) 线性扫描。
+        叠加单槽 LRU 缓存以缓解指令级 tracing hook 的重复查找。
+        参考 memmgr._sorted_bases (P0-4) 与 winemu._mod_intervals (P0-5) 的 bisect 模式。
         """
-        for mod in self.modules:
-            base = mod.base
-            size = mod.image_size
-            if addr >= base and addr <= base + size:
-                return mod
+        # 单槽 LRU：相同地址连续查询时直接命中（tracing hook 经常连续查同一 PC）
+        lru = self._mod_addr_lru
+        if lru is not None and lru[0] == addr:
+            return lru[1]
+
+        # 区间表若与 self.modules 不同步则重建，保证一致性
+        if len(self._sorted_mods) != len(self.modules):
+            self._rebuild_sorted_mods()
+
+        bases = self._sorted_mod_bases
+        if not bases:
+            return None
+
+        # bisect_right 找到 base <= addr 的最后一个候选区间，O(log n)
+        idx = bisect.bisect_right(bases, addr) - 1
+        if idx < 0:
+            return None
+        mod = self._sorted_mods[idx]
+        base = mod.base
+        end = base + mod.image_size
+        # 保留原实现的上界包含语义（addr <= base + size）以兼容现有调用方
+        if addr >= base and addr <= end:
+            self._mod_addr_lru = (addr, mod)
+            return mod
         return None
 
     def get_api_hooks(self, mod_name, func_name) -> list[common.ApiHook]:

@@ -36,11 +36,22 @@ from speakeasy.windows.regman import RegistryManager
 # the size of the current disasm target
 DISASM_SIZE = 0x20
 
+# V2-4-1: read/write/exec_cache 的页基址字典容量上限，超出后淘汰最久未用项
+MEM_ACCESS_CACHE_MAX = 128
+
 logger = logging.getLogger(__name__)
 
 
 def _normalize_mod_name(name: str) -> str:
     return os.path.splitext(name)[0].lower()
+
+
+def _cache_put(cache, page_key, maccess):
+    """V2-4-1: 将 MemAccess 写入页基址 LRU 字典，超出上限时淘汰最旧项。"""
+    cache[page_key] = maccess
+    cache.move_to_end(page_key)
+    if len(cache) > MEM_ACCESS_CACHE_MAX:
+        cache.popitem(last=False)
 
 
 class BootstrapPhase(IntEnum):
@@ -108,6 +119,11 @@ class WindowsEmulator(BinaryEmulator):
         self.curr_process: Any | None = None
         self.om: objman.ObjectManager | None = None
         self.import_table: dict[int, tuple[str, str]] = {}
+        # V2-4-2: 反向索引 (mod_name, func_name) -> sentinel，使 get_proc O(1) 查找。
+        # 在 import_table 写入时同步维护，避免主题 J 缓存失效。
+        self._import_name_to_addr: dict[tuple[str, str], int] = {}
+        # V2-4-3: normalize_import_miss 结果缓存 (dll_lower, name) -> (mod, func_attrs)
+        self._import_miss_cache: dict[tuple[str, str], tuple[Any, Any]] = {}
         self._next_sentinel: int = winemu.IMPORT_HOOK_ADDR
         self.callbacks: list[tuple[int, str, str]] = []
         self.mem_trace_hooks: list[Any] = []
@@ -129,6 +145,10 @@ class WindowsEmulator(BinaryEmulator):
         # to not mix up config processes with child processes
         self.child_processes: list[Any] = []
         self.curr_thread: Any | None = None
+        # V1-S-5: 自动创建的 Thread 对象池，多 run 场景复用以避免重复 mem_map 构造。
+        # 仅缓存 _prepare_run_context 中自动创建的线程；外部传入的 run.thread 不入池。
+        self._thread_pool: list[Any] = []
+        self._thread_pool_max: int = 8
         self.curr_exception_code: int = 0
         self.prev_pc: int = 0
         self.unhandled_exception_filter: int = 0
@@ -137,6 +157,9 @@ class WindowsEmulator(BinaryEmulator):
 
         self.fs_addr: int = 0
         self.gs_addr: int = 0
+
+        # get_native_module_path 的结果缓存：mod_name -> 路径（或 None），避免重复 os.listdir
+        self._native_module_cache: dict[str, str | None] = {}
 
         self.return_hook: int = winemu.EMU_RETURN_ADDR
         self.exit_hook: int = winemu.EXIT_RETURN_ADDR
@@ -280,6 +303,7 @@ class WindowsEmulator(BinaryEmulator):
         """
         if self.emu_hooks_set:
             self.emu_eng.mem_map(winemu.EMU_RETURN_ADDR, winemu.EMU_RESERVE_SIZE)  # type: ignore[union-attr]
+            self.invalidate_free_ranges()
         self.emu_hooks_set = False
 
     def file_open(self, path, create=False, truncate=False):
@@ -411,6 +435,9 @@ class WindowsEmulator(BinaryEmulator):
         """
         Execute the next run from the emulation queue
         """
+        # V1-S-5: 在准备下一个 run 前回收上一个自动创建的 Thread，便于复用
+        self._retire_curr_thread()
+
         try:
             run = self.run_queue.pop(0)
         except IndexError:
@@ -422,6 +449,48 @@ class WindowsEmulator(BinaryEmulator):
         self._seh_repeat_count = 0
         self.reset_stack(self.stack_base)
         return self._prepare_run_context(run)
+
+    def _acquire_thread(self, stack_base):
+        """V1-S-5: 从对象池获取一个可复用 Thread，或新建。"""
+        if self._thread_pool:
+            thread = self._thread_pool.pop()
+            self._reset_thread_for_reuse(thread, stack_base)
+            return thread
+        thread = objman.Thread(self, stack_base=stack_base)
+        thread._auto_created = True  # type: ignore[attr-defined]
+        return thread
+
+    def _retire_curr_thread(self):
+        """V1-S-5: 当前线程若为自动创建则回收入池，供后续 run 复用。"""
+        thread = self.curr_thread
+        if thread is None:
+            return
+        if not getattr(thread, "_auto_created", False):
+            return
+        if len(self._thread_pool) < self._thread_pool_max:
+            self._thread_pool.append(thread)
+
+    def _reset_thread_for_reuse(self, thread, stack_base):
+        """V1-S-5: 复用前重置 per-run 可变状态，保留 mem_map'd 内存与 tid。"""
+        thread.seh = objman.SEH()
+        thread.tls = []
+        thread.fls = []
+        thread.message_queue = []
+        thread.suspend_count = 0
+        thread.last_error = 0
+        thread.modified_pc = False
+        thread.ctx = self.get_thread_context()
+        thread.stack_base = stack_base
+        thread.stack_commit = 0
+        # 从旧进程的 threads 列表移除，避免复用时重复追加
+        old_proc = getattr(thread, "process", None)
+        if old_proc is not None:
+            try:
+                old_proc.threads.remove(thread)
+            except (ValueError, AttributeError):
+                pass
+            thread.process = None
+        thread.teb = None  # 由 init_teb 重新创建
 
     def call(self, addr, params=[]):
         """
@@ -468,7 +537,8 @@ class WindowsEmulator(BinaryEmulator):
         if run.thread:
             self.set_current_thread(run.thread)
         elif not self.kernel_mode:
-            thread = objman.Thread(self, stack_base=self.stack_base)
+            # V1-S-5: 优先从对象池复用 Thread，避免重复 mem_map 构造
+            thread = self._acquire_thread(self.stack_base)
             self.om.objects.update({thread.address: thread})
             if self.curr_process:
                 thread.process = self.curr_process
@@ -966,6 +1036,11 @@ class WindowsEmulator(BinaryEmulator):
         self._next_sentinel += self.get_ptr_size()
         return addr
 
+    def _register_import(self, sentinel, mod_name, func_name):
+        """V2-4-2: 同步维护 import_table 与反向索引 _import_name_to_addr。"""
+        self.import_table[sentinel] = (mod_name, func_name)
+        self._import_name_to_addr[(mod_name, func_name)] = sentinel
+
     def ensure_pe_import_hooks(self, base_addr):
         """
         Ensure a PE image in emulated memory has its IAT patched with sentinel
@@ -1071,7 +1146,7 @@ class WindowsEmulator(BinaryEmulator):
                     func_name = name_bytes.split(b"\x00", 1)[0].decode("utf-8", errors="replace")
 
                 sentinel = self._alloc_sentinel()
-                self.import_table[sentinel] = (_normalize_mod_name(dll_name), func_name)
+                self._register_import(sentinel, _normalize_mod_name(dll_name), func_name)
                 try:
                     self.mem_write(iat_va, sentinel.to_bytes(ptr_size, "little"))
                     n_fixups += 1
@@ -1141,7 +1216,7 @@ class WindowsEmulator(BinaryEmulator):
         ptr_size = self.get_ptr_size()
         for imp in image.imports:
             sentinel = self._alloc_sentinel()
-            self.import_table[sentinel] = (_normalize_mod_name(imp.dll_name), imp.func_name)
+            self._register_import(sentinel, _normalize_mod_name(imp.dll_name), imp.func_name)
             offset = imp.iat_address
             try:
                 self.mem_write(offset, sentinel.to_bytes(ptr_size, "little"))
@@ -1462,12 +1537,13 @@ class WindowsEmulator(BinaryEmulator):
         "GetProcAddress" API functions.
         """
         mod_name = _normalize_mod_name(mod_name)
-        for addr, (mod, fn) in self.import_table.items():
-            if mod_name == mod and func_name == fn:
-                return addr
+        # V2-4-2: 反向索引 O(1) 查找替代 import_table 线性扫描
+        addr = self._import_name_to_addr.get((mod_name, func_name))
+        if addr is not None:
+            return addr
 
         sentinel = self._alloc_sentinel()
-        self.import_table[sentinel] = (mod_name, func_name)
+        self._register_import(sentinel, mod_name, func_name)
         return sentinel
 
     def handle_import_data(self, mod_name, sym, data_ptr=0):
@@ -1665,6 +1741,12 @@ class WindowsEmulator(BinaryEmulator):
         For example, ntdll functions will be handled by the ntoskrnl handlers, multiple versions
         of the C runtime are folded together, and Zw/Nt functions use the same handler.
         """
+        # V2-4-3: 实例级缓存避免对相同 (dll, name) 重复执行折叠逻辑
+        cache_key = (dll.lower(), name)
+        cached = self._import_miss_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         alt_imp_api = ""
         alt_imp_dll = ""
         mod, func_attrs = None, None
@@ -1694,12 +1776,14 @@ class WindowsEmulator(BinaryEmulator):
                     name = "Zw" + name[2:]
                     alt_imp_api = f"Zw{name[2:]}"
                 mod, func_attrs = self.api.get_export_func_handler(alt_imp_dll, alt_imp_api)  # type: ignore[union-attr]
+            self._import_miss_cache[cache_key] = (mod, func_attrs)
             return mod, func_attrs
 
         if alt_imp_api:
             mod, func_attrs = self.api.get_export_func_handler(dll, alt_imp_api)  # type: ignore[union-attr]
         elif alt_imp_dll:
             mod, func_attrs = self.api.get_export_func_handler(alt_imp_dll, name)  # type: ignore[union-attr]
+        self._import_miss_cache[cache_key] = (mod, func_attrs)
         return mod, func_attrs
 
     def read_unicode_string(self, addr):
@@ -1968,10 +2052,13 @@ class WindowsEmulator(BinaryEmulator):
                         self.enable_code_hook()
                         return True
 
-            for read_access in self.curr_run.read_cache:  # type: ignore[union-attr]
-                if read_access.base <= address <= (read_access.base + read_access.size) - 1:
-                    read_access.reads += 1
-                    return True
+            # V2-4-1: 页基址字典 O(1) 查找替代 maxlen=4 线性扫描
+            _page_key = address >> 12
+            read_access = self.curr_run.read_cache.get(_page_key)  # type: ignore[union-attr]
+            if read_access is not None and read_access.base <= address <= (read_access.base + read_access.size) - 1:
+                read_access.reads += 1
+                self.curr_run.read_cache.move_to_end(_page_key)  # type: ignore[union-attr]
+                return True
 
             mod = self.get_mod_from_addr(address)
             if mod and mod.sections:
@@ -1982,7 +2069,7 @@ class WindowsEmulator(BinaryEmulator):
                     if not maccess:
                         maccess = MemAccess(base=mod.base + sect.virtual_address, size=sect.virtual_size)
                         self.curr_run.section_access[key] = maccess  # type: ignore[union-attr]
-                    self.curr_run.read_cache.appendleft(maccess)  # type: ignore[union-attr]
+                    _cache_put(self.curr_run.read_cache, _page_key, maccess)  # type: ignore[union-attr]
                     maccess.reads += 1
                     return True
 
@@ -1993,7 +2080,7 @@ class WindowsEmulator(BinaryEmulator):
             maccess = self.curr_run.mem_access.get(mmap)  # type: ignore[union-attr]
             if not maccess:
                 maccess = MemAccess(base=mmap.base, size=mmap.size)
-            self.curr_run.read_cache.appendleft(maccess)  # type: ignore[union-attr]
+            _cache_put(self.curr_run.read_cache, _page_key, maccess)  # type: ignore[union-attr]
             self.curr_run.mem_access.update({mmap: maccess})  # type: ignore[union-attr]
             maccess.reads += 1
 
@@ -2020,10 +2107,13 @@ class WindowsEmulator(BinaryEmulator):
                 mac.writes += 1
                 self.curr_run.sym_access.update({address: mac})  # type: ignore[union-attr]
 
-            for write_access in self.curr_run.write_cache:  # type: ignore[union-attr]
-                if write_access.base <= address <= (write_access.base + write_access.size) - 1:
-                    write_access.writes += 1
-                    return True
+            # V2-4-1: 页基址字典 O(1) 查找替代 maxlen=4 线性扫描
+            _page_key = address >> 12
+            write_access = self.curr_run.write_cache.get(_page_key)  # type: ignore[union-attr]
+            if write_access is not None and write_access.base <= address <= (write_access.base + write_access.size) - 1:
+                write_access.writes += 1
+                self.curr_run.write_cache.move_to_end(_page_key)  # type: ignore[union-attr]
+                return True
 
             mod = self.get_mod_from_addr(address)
             if mod and mod.sections:
@@ -2034,7 +2124,7 @@ class WindowsEmulator(BinaryEmulator):
                     if not maccess:
                         maccess = MemAccess(base=mod.base + sect.virtual_address, size=sect.virtual_size)
                         self.curr_run.section_access[key] = maccess  # type: ignore[union-attr]
-                    self.curr_run.write_cache.appendleft(maccess)  # type: ignore[union-attr]
+                    _cache_put(self.curr_run.write_cache, _page_key, maccess)  # type: ignore[union-attr]
                     maccess.writes += 1
                     return True
 
@@ -2045,7 +2135,7 @@ class WindowsEmulator(BinaryEmulator):
             maccess = self.curr_run.mem_access.get(mmap)  # type: ignore[union-attr]
             if not maccess:
                 maccess = MemAccess(base=mmap.base, size=mmap.size)
-            self.curr_run.write_cache.appendleft(maccess)  # type: ignore[union-attr]
+            _cache_put(self.curr_run.write_cache, _page_key, maccess)  # type: ignore[union-attr]
             self.curr_run.mem_access.update({mmap: maccess})  # type: ignore[union-attr]
             maccess.writes += 1
 
@@ -2242,10 +2332,13 @@ class WindowsEmulator(BinaryEmulator):
             self.prev_pc = addr
             self.curr_run.instr_cnt += 1  # type: ignore[union-attr]
 
-            for exec_access in self.curr_run.exec_cache:  # type: ignore[union-attr]
-                if exec_access.base <= addr <= (exec_access.base + exec_access.size) - 1:
-                    exec_access.execs += 1
-                    return True
+            # V2-4-1: 页基址字典 O(1) 查找替代 maxlen=4 线性扫描
+            _page_key = addr >> 12
+            exec_access = self.curr_run.exec_cache.get(_page_key)  # type: ignore[union-attr]
+            if exec_access is not None and exec_access.base <= addr <= (exec_access.base + exec_access.size) - 1:
+                exec_access.execs += 1
+                self.curr_run.exec_cache.move_to_end(_page_key)  # type: ignore[union-attr]
+                return True
 
             mod = self.get_mod_from_addr(addr)
             if mod and mod.sections:
@@ -2256,7 +2349,7 @@ class WindowsEmulator(BinaryEmulator):
                     if not maccess:
                         maccess = MemAccess(base=mod.base + sect.virtual_address, size=sect.virtual_size)
                         self.curr_run.section_access[key] = maccess  # type: ignore[union-attr]
-                    self.curr_run.exec_cache.appendleft(maccess)  # type: ignore[union-attr]
+                    _cache_put(self.curr_run.exec_cache, _page_key, maccess)  # type: ignore[union-attr]
                     maccess.execs += 1
                     return True
 
@@ -2266,7 +2359,7 @@ class WindowsEmulator(BinaryEmulator):
             maccess = self.curr_run.mem_access.get(mmap)  # type: ignore[union-attr]
             if not maccess:
                 maccess = MemAccess(base=mmap.base, size=mmap.size)
-            self.curr_run.exec_cache.appendleft(maccess)  # type: ignore[union-attr]
+            _cache_put(self.curr_run.exec_cache, _page_key, maccess)  # type: ignore[union-attr]
             self.curr_run.mem_access.update({mmap: maccess})  # type: ignore[union-attr]
             maccess.execs += 1
 
@@ -2298,6 +2391,11 @@ class WindowsEmulator(BinaryEmulator):
         Get the full filesystem path of a default decoy that is supplied by
         speakeasy
         """
+        mod_name = mod_name.lower()
+
+        cache = self._native_module_cache
+        if mod_name in cache:
+            return cache[mod_name]
 
         def get_fp(path, mod_name):
             path = common.normalize_package_path(path)
@@ -2308,7 +2406,6 @@ class WindowsEmulator(BinaryEmulator):
                 if mod_name == bn:
                     return fp
 
-        mod_name = mod_name.lower()
         decoy_arch_dir = {
             _arch.ARCH_X86: ("module_directory_x86", "x86"),
             _arch.ARCH_AMD64: ("module_directory_x64", "amd64"),
@@ -2323,6 +2420,7 @@ class WindowsEmulator(BinaryEmulator):
             path = os.path.join(os.path.dirname(__file__), os.pardir, "winenv", "decoys", dirs[1])
             fp = get_fp(path, mod_name)
 
+        cache[mod_name] = fp
         return fp
 
     def load_library(self, mod_name):

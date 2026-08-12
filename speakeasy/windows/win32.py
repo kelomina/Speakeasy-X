@@ -170,12 +170,14 @@ class Win32Emulator(WindowsEmulator):
         emu_path = self._make_emu_path(path, data)
         self.fileman.add_existing_file(emu_path, data)
 
-        self._set_input_metadata(path, data)
-
         loader = PeLoader(path=path, data=data)
         image = loader.make_image()
         image.name = self.mod_name
         image.emu_path = emu_path
+
+        # V2-9-1: 复用 make_image() 已解析的 pe_metadata 生成 input 元数据，
+        # 避免在此处第二次完整构造 _PeParser 解析同一 PE。
+        self._set_input_metadata(image)
 
         rtmod = self.load_image(image)
         self.set_func_args(self.stack_base, self.return_hook)
@@ -191,30 +193,23 @@ class Win32Emulator(WindowsEmulator):
             cd += "\\"
         return cd + os.path.basename(self.file_name)
 
-    def _set_input_metadata(self, path, data):
+    def _set_input_metadata(self, image):
         if not self.profiler:
             return
-        from speakeasy.windows.common import _PeParser
-
-        pe = _PeParser(path=path, data=data, fast_load=True)
-        pe_type = "unknown"
-        if pe.is_driver():
-            pe_type = "driver"
-        elif pe.is_dll():
-            pe_type = "dll"
-        elif pe.is_exe():
-            pe_type = "exe"
+        pe_meta = image.pe_metadata
+        if pe_meta is None:
+            return
         arch = "unknown"
-        if pe.arch == _arch.ARCH_AMD64:
+        if image.arch == _arch.ARCH_AMD64:
             arch = "x64"
-        elif pe.arch == _arch.ARCH_X86:
+        elif image.arch == _arch.ARCH_X86:
             arch = "x86"
         self.input = {
-            "path": pe.path,
-            "sha256": pe.hash,
-            "size": pe.file_size,
+            "path": pe_meta.path,
+            "sha256": pe_meta.sha256,
+            "size": pe_meta.file_size,
             "arch": arch,
-            "filetype": pe_type,
+            "filetype": pe_meta.pe_type,
             "emu_version": self.get_emu_version(),
             "os_run": self.get_osver_string(),
         }

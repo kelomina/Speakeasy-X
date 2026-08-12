@@ -100,6 +100,9 @@ class RegistryManager:
         self.keys = []
         self.config = config
         self.reg_tree = []
+        # Lowercased path -> RegKey index for O(1) exact lookups in
+        # get_key_from_path; kept in sync with self.keys via _register_key.
+        self._key_index: dict[str, RegKey] = {}
 
         for hk in (HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, HKEY_USERS):
             path = regdefs.get_hkey_type(hk)
@@ -119,10 +122,22 @@ class RegistryManager:
     def get_key_from_handle(self, handle):
         return self.reg_handles.get(handle)
 
+    def _register_key(self, key):
+        """Append a key to self.keys and keep _key_index in sync."""
+        self.keys.append(key)
+        self._key_index[key.get_path().lower()] = key
+
     def get_key_from_path(self, path):
         path = self.normalize_reg_path(path)
-        for key in self.keys:
-            if fnmatch.fnmatch(key.get_path().lower(), path.lower()):
+        path_lower = path.lower()
+        # Fast path: exact match via the lowercased-path index (O(1)).
+        key = self._key_index.get(path_lower)
+        if key is not None:
+            return key
+        # Fallback for wildcard patterns (e.g. "*\\Run"); path_lower is
+        # hoisted out of the loop and the index keys are already lowercased.
+        for k_path_lower, key in self._key_index.items():
+            if fnmatch.fnmatch(k_path_lower, path_lower):
                 return key
         return None
 
@@ -192,7 +207,7 @@ class RegistryManager:
             return key
 
         key = RegKey(path)
-        self.keys.append(key)
+        self._register_key(key)
         return key
 
     def open_key(self, path, create=False):
@@ -220,5 +235,5 @@ class RegistryManager:
             key = RegKey(path)
             hnd = key.get_handle()
             self.reg_handles.update({hnd: key})
-            self.keys.append(key)
+            self._register_key(key)
         return hnd

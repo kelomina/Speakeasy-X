@@ -76,10 +76,9 @@ class Mpr(api.ApiHandler):
           LPDWORD lpnLength
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpLocalName, lpRemoteName, lpnLength = argv
 
-        cw = self.get_char_width(ctx)
 
         local_name = self.read_mem_string(lpLocalName, cw)
         if local_name:

@@ -805,20 +805,40 @@ def test_other_hook_types_not_delegated_to_code_dispatch():
     eng.close()
 
 
-def test_code_hook_handle_shared():
-    """所有 code hook 共享同一分发器句柄。"""
+def test_code_hook_per_hook_handle_individual_disable():
+    """V2-3-2: 每个 code hook 获得独立句柄，hook_disable/hook_enable 可单独控制。
+
+    取代旧的 test_code_hook_handle_shared：共享句柄正是 P0 bug 根因
+    （hook_disable 对 code hook 无效），现已修复为 per-hook 独立句柄。
+    """
     eng = _make_emu_engine_x86()
+    code = _x86_nop_sled(2)
+    eng.mem_write(0x1000, code)
 
-    def cb1(e, addr, size, ctx=None):
-        pass
+    import unicorn.x86_const as u
+    eng.emu.reg_write(u.UC_X86_REG_EIP, 0x1000)
+    eng.emu.reg_write(u.UC_X86_REG_ESP, 0x2FF0)
 
-    def cb2(e, addr, size, ctx=None):
-        pass
+    hits1 = []
+    hits2 = []
 
-    h1 = eng.add_code_hook(cb1)
-    h2 = eng.add_code_hook(cb2)
-    # 两个 hook 应返回相同的句柄（共享分发器）
-    assert h1 == h2
+    h1 = eng.add_code_hook(lambda e, a, s, c: hits1.append(a))
+    h2 = eng.add_code_hook(lambda e, a, s, c: hits2.append(a))
+    # 独立句柄（底层仍共享单个原生分发器 _code_dispatch_id）
+    assert h1 != h2
+    assert eng._code_dispatch_id is not None
+
+    # 禁用 h1，h2 仍触发
+    eng.hook_disable(h1)
+    eng.emu.emu_start(0x1000, 0x1000 + 1, count=1)
+    assert hits1 == []
+    assert hits2 == [0x1000]
+
+    # 启用 h1，两个 hook 均触发
+    eng.hook_enable(h1)
+    eng.emu.emu_start(0x1001, 0x1000 + 2, count=1)
+    assert hits1 == [0x1001]
+    assert hits2 == [0x1000, 0x1001]
 
 
 if __name__ == "__main__":

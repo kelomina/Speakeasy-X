@@ -56,7 +56,7 @@ class AdvApi32(api.ApiHandler):
           PHKEY  phkResult
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         hKey, lpSubKey, phkResult = argv
         rv = windefs.ERROR_SUCCESS
@@ -73,7 +73,6 @@ class AdvApi32(api.ApiHandler):
                 return windefs.ERROR_PATH_NOT_FOUND
             hkey_name = key_obj.path
 
-        cw = self.get_char_width(ctx)
         if lpSubKey:
             lpSubKey = self.read_mem_string(lpSubKey, cw)
             argv[1] = lpSubKey
@@ -105,7 +104,7 @@ class AdvApi32(api.ApiHandler):
           PHKEY  phkResult
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         hKey, lpSubKey, ulOptions, samDesired, phkResult = argv
         rv = windefs.ERROR_SUCCESS
@@ -118,7 +117,6 @@ class AdvApi32(api.ApiHandler):
             if not hnd and not lpSubKey:
                 hnd = hKey
 
-        cw = self.get_char_width(ctx)
         if lpSubKey:
             lpSubKey = self.read_mem_string(lpSubKey, cw)
             argv[1] = lpSubKey
@@ -151,12 +149,11 @@ class AdvApi32(api.ApiHandler):
           LPDWORD lpcbData
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         hKey, lpValueName, lpReserved, lpType, lpData, lpcbData = argv
         rv = windefs.ERROR_SUCCESS
 
-        cw = self.get_char_width(ctx)
         if lpValueName:
             lpValueName = self.read_mem_string(lpValueName, cw)
             argv[1] = lpValueName
@@ -229,7 +226,7 @@ class AdvApi32(api.ApiHandler):
           DWORD      cbData
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         hKey, lpValueName, _reserved, dwType, lpData, cbData = argv
 
@@ -237,7 +234,6 @@ class AdvApi32(api.ApiHandler):
         if not key:
             return windefs.ERROR_INVALID_HANDLE
 
-        cw = self.get_char_width(ctx)
         value_name = ""
         if lpValueName:
             value_name = self.read_mem_string(lpValueName, cw)
@@ -335,11 +331,10 @@ class AdvApi32(api.ApiHandler):
             PFILETIME lpftLastWriteTime
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         hKey, dwIndex, lpName, cchName, res, pcls, cchcls, last_write = argv
 
-        cw = self.get_char_width(ctx)
         rv = windefs.ERROR_INVALID_HANDLE
         if hKey:
             key = self.reg_get_key(hKey)
@@ -372,7 +367,7 @@ class AdvApi32(api.ApiHandler):
             PHKEY   phkResult
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hkey, lpSubKey, phkResult = argv
         rv = windefs.ERROR_INVALID_HANDLE
         if hkey:
@@ -381,7 +376,6 @@ class AdvApi32(api.ApiHandler):
             if not key:
                 rv = windefs.ERROR_INVALID_HANDLE
             else:
-                cw = self.get_char_width(ctx)
                 if lpSubKey:
                     lpSubKey = self.read_mem_string(lpSubKey, cw)
                     argv[1] = lpSubKey
@@ -409,7 +403,7 @@ class AdvApi32(api.ApiHandler):
           LPDWORD               lpdwDisposition
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hKey, lpSubKey, _reserved, _lpClass, _dwOptions, _samDesired, _sa, phkResult, lpdwDisposition = argv
 
         key_path = ""
@@ -423,7 +417,6 @@ class AdvApi32(api.ApiHandler):
                 return windefs.ERROR_INVALID_HANDLE
             key_path = key_obj.get_path()
 
-        cw = self.get_char_width(ctx)
         if lpSubKey:
             sub_key = self.read_mem_string(lpSubKey, cw)
             argv[1] = sub_key
@@ -455,14 +448,13 @@ class AdvApi32(api.ApiHandler):
           LPCSTR lpValueName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hKey, lpValueName = argv
 
         key = self.reg_get_key(hKey)
         if not key:
             return windefs.ERROR_INVALID_HANDLE
 
-        cw = self.get_char_width(ctx)
         value_name = ""
         if lpValueName:
             value_name = self.read_mem_string(lpValueName, cw)
@@ -643,13 +635,9 @@ class AdvApi32(api.ApiHandler):
           const SERVICE_TABLE_ENTRY *lpServiceStartTable
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx, default_cw=1)
         (lpServiceStartTable,) = argv
 
-        try:
-            cw = self.get_char_width(ctx)
-        except Exception:
-            cw = 1
 
         ste = self.win.SERVICE_TABLE_ENTRY(emu.get_ptr_size())
         entry = self.mem_cast(ste, lpServiceStartTable)
@@ -781,7 +769,7 @@ class AdvApi32(api.ApiHandler):
           LPCSTR    lpPassword
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (
             hScm,
             svc_name,
@@ -798,7 +786,6 @@ class AdvApi32(api.ApiHandler):
             password,
         ) = argv
 
-        cw = self.get_char_width(ctx)
 
         if svc_name:
             _sname = self.read_mem_string(svc_name, cw)
@@ -960,7 +947,7 @@ class AdvApi32(api.ApiHandler):
           LPCSTR    lpDisplayName
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (
             _hService,
             _dwServiceType,
@@ -975,7 +962,6 @@ class AdvApi32(api.ApiHandler):
             lpDisplayName,
         ) = argv
 
-        cw = self.get_char_width(ctx)
 
         if lpBinaryPathName:
             argv[4] = self.read_mem_string(lpBinaryPathName, cw)
@@ -1039,10 +1025,9 @@ class AdvApi32(api.ApiHandler):
             DWORD      dwFlags
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         phProv, szContainer, szProvider, dwProvType, dwFlags = argv
         cont_str, prov_str = "", ""
-        cw = self.get_char_width(ctx)
         rv = False
 
         if szContainer:
@@ -1163,14 +1148,13 @@ class AdvApi32(api.ApiHandler):
           LPHW_PROFILE_INFOA lpHwProfileInfo
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         (lpHwProfileInfo,) = argv
 
         if not lpHwProfileInfo:
             emu.set_last_error(windefs.ERROR_INVALID_PARAMETER)
             return 0
 
-        cw = self.get_char_width(ctx)
         guid = "{00000000-0000-0000-0000-000000000000}"
         profile_name = "Speakeasy HW Profile"
 
@@ -1198,10 +1182,9 @@ class AdvApi32(api.ApiHandler):
             LPDWORD pcbBuffer
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         lpBuffer, pcbBuffer = argv
         rv = False
-        cw = self.get_char_width(ctx)
 
         user_name = emu.config.user.name
         argv[0] = user_name
@@ -1227,10 +1210,9 @@ class AdvApi32(api.ApiHandler):
             PLUID  lpLuid
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         sysname, name, luid = argv
         rv = False
-        cw = self.get_char_width(ctx)
 
         if sysname:
             sysname = self.read_mem_string(sysname, cw)
@@ -1355,12 +1337,11 @@ class AdvApi32(api.ApiHandler):
           [out]           PSID_NAME_USE peUse
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         ptr_sysname, ptr_acctname, ptr_sid, ptr_cbsid, ptr_domname, ptr_cchdomname, ptr_peuse = argv
         rv = 0
 
-        cw = self.get_char_width(ctx)
 
         if ptr_sysname:
             sn = self.read_mem_string(ptr_sysname, cw)
@@ -1430,11 +1411,10 @@ class AdvApi32(api.ApiHandler):
             PSID_NAME_USE peUse
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         sysname, sid, name, cchname, domname, cchdomname, peuse = argv
         rv = False
 
-        cw = self.get_char_width(ctx)
 
         if not cchname or not cchdomname:
             return rv
@@ -1472,10 +1452,9 @@ class AdvApi32(api.ApiHandler):
           LPPROCESS_INFORMATION lpProcessInformation
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         token, app, cmd, pa, ta, inherit, flags, env, cd, si, ppi = argv
 
-        cw = self.get_char_width(ctx)
         cmdstr = ""
         appstr = ""
         if app:
@@ -1701,12 +1680,11 @@ class AdvApi32(api.ApiHandler):
             LPDWORD pcbData
             );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
 
         hKey, lpSubKey, lpValue, dwFlags, lpType, lpData, lpcbData = argv
         rv = windefs.ERROR_SUCCESS
 
-        cw = self.get_char_width(ctx)
         if lpSubKey:
             lpSubKey = self.read_mem_string(lpSubKey, cw)
             argv[1] = lpSubKey
@@ -1801,9 +1779,8 @@ class AdvApi32(api.ApiHandler):
           DWORD     dwDesiredAccess
         );
         """
-        ctx = ctx or {}
+        ctx, cw = self.prepare_ctx(ctx)
         hSCManager, lpServiceName, dwDesiredAccess = argv
-        cw = self.get_char_width(ctx)
         svcname = self.read_mem_string(lpServiceName, cw)
         argv[1] = svcname
         return self.get_handle()

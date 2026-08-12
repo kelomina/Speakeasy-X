@@ -172,7 +172,7 @@ def test_dispatcher_integration_range_hook_only_fires_in_range():
 
 
 def test_dispatcher_integration_multiple_hooks_share_single_dispatch():
-    """多个 code hook 共享同一分发器句柄，但各自独立触发。"""
+    """多个 code hook 共享同一原生分发器（单 native hook），各自独立触发。"""
     eng = EmuEngine()
     eng.init_engine(e_arch.ARCH_X86, e_arch.BITS_32)
     eng.mem_map(0x1000, 0x1000)
@@ -182,8 +182,9 @@ def test_dispatcher_integration_multiple_hooks_share_single_dispatch():
     calls_b = []
     h1 = eng.add_code_hook(lambda e, a, s, c: calls_a.append(a))
     h2 = eng.add_code_hook(lambda e, a, s, c: calls_b.append(a))
-    # 共享同一分发器句柄
-    assert h1 == h2
+    # V2-3-2: 每个 hook 获得独立句柄，但底层仍共享单个原生分发器
+    assert h1 != h2
+    assert eng._code_dispatch_id is not None
     eng.start(0x1000, count=2)
     assert calls_a == [0x1000, 0x1005]
     assert calls_b == [0x1000, 0x1005]
