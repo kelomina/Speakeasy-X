@@ -1284,6 +1284,8 @@ class WindowsEmulator(BinaryEmulator):
 
             for imp in image.imports:
                 _api_mod, eh = self.api.get_data_export_handler(imp.dll_name, imp.func_name)
+                if not eh:
+                    eh = self.api.get_stub_data_handler(imp.dll_name, imp.func_name)
                 if eh:
                     data_ptr = self.handle_import_data(imp.dll_name, imp.func_name)
                     sym = f"{imp.dll_name}.{imp.func_name}"
@@ -1553,6 +1555,11 @@ class WindowsEmulator(BinaryEmulator):
         """
         module, func = self.api.get_data_export_handler(mod_name, sym)  # type: ignore[union-attr]
         if not func:
+            if self.api.get_stub_data_handler(mod_name, sym):  # type: ignore[union-attr]
+                # Generated data stub: allocate a zero-initialized slot.
+                ptr = self.mem_map(4, tag=f"api.stub.data.{mod_name}.{sym}")
+                self.mem_write(ptr, b"\x00\x00\x00\x00")
+                return ptr
             module, func = self.api.get_export_func_handler(mod_name, sym)  # type: ignore[union-attr]
             if not func:
                 return None
@@ -1783,6 +1790,13 @@ class WindowsEmulator(BinaryEmulator):
             mod, func_attrs = self.api.get_export_func_handler(dll, alt_imp_api)  # type: ignore[union-attr]
         elif alt_imp_dll:
             mod, func_attrs = self.api.get_export_func_handler(alt_imp_dll, name)  # type: ignore[union-attr]
+        # A/W-suffixed imports from normalized DLLs (api-ms-*, kernelbase,
+        # sechost, ...) must also fall back to the normalized handler with the
+        # original name and with the suffix stripped.
+        if not func_attrs and alt_imp_dll and alt_imp_dll.lower() != dll.lower():
+            mod, func_attrs = self.api.get_export_func_handler(alt_imp_dll, name)  # type: ignore[union-attr]
+        if not func_attrs and alt_imp_api and alt_imp_dll and alt_imp_dll.lower() != dll.lower():
+            mod, func_attrs = self.api.get_export_func_handler(alt_imp_dll, alt_imp_api)  # type: ignore[union-attr]
         self._import_miss_cache[cache_key] = (mod, func_attrs)
         return mod, func_attrs
 
@@ -1904,6 +1918,30 @@ class WindowsEmulator(BinaryEmulator):
                 ret = self.get_ret_address()
                 self.log_api(call_pc, imp_api, rv, argv)
                 self.do_call_return(hook.argc, ret, rv, conv=hook.call_conv)
+                return
+            elif stub_attrs := self.api.get_stub_func_handler(dll, name):  # type: ignore[union-attr]
+                # Generated stub: permissive no-op so emulation of samples that
+                # call long-tail exports does not abort with "unsupported_api".
+                handler_name, func, argc, conv, ordinal = stub_attrs
+                if name.startswith("ordinal_"):
+                    name = handler_name
+                imp_api = f"{dll}.{name}"
+                argv = self.get_func_argv(conv, argc)
+                self.hammer.handle_import_func(imp_api, conv, argc)
+                logger.debug("Using generated stub for unsupported API: %s", imp_api)
+                try:
+                    rv = self.api.call_api_func(None, func, argv, ctx={"func_name": imp_api})  # type: ignore[union-attr]
+                except Exception as e:
+                    logger.exception("0x%x: Error while calling stub handler for %s:", oret, imp_api)
+                    error = self.get_error_info(str(e), self.get_pc(), traceback=traceback.format_exc())
+                    self.curr_run.error = error  # type: ignore[union-attr]
+                    self.on_run_complete()
+                    return
+                ret = self.get_ret_address()
+                pc = self.get_pc()
+                self.log_api(call_pc, imp_api, rv, argv)
+                if not self.run_complete and ret == oret and pc == opc:
+                    self.do_call_return(argc, ret, rv, conv=conv)
                 return
             elif self.config.modules.functions_always_exist:
                 imp_api = f"{dll}.{name}"

@@ -1,5 +1,6 @@
 # Copyright (C) 2020 FireEye, Inc. All Rights Reserved.
 
+import struct
 from typing import Any
 
 import speakeasy.windows.sessman as sessman
@@ -54,11 +55,900 @@ class User32(api.ApiHandler):
 
         super().__get_hook_attrs__(self)
 
+        self._register_user32_batch()
+
     def get_handle(self):
         self.handle += 4
         hnd = self.handle
         self.handles.append(hnd)
         return hnd
+
+    def _register_user32_batch(self):
+        """Register real handlers for common user32 string/window helpers."""
+        ptr = self.get_ptr_size()
+        sd = _arch.CALL_CONV_STDCALL
+        self.window_text: dict[int, str] = {}
+
+        def reg(name, func, argc):
+            if name not in self.funcs:
+                self.funcs[name] = (name, func, argc, sd, None)
+
+        def lstrlen_impl(self, emu, argv, ctx=None):
+            s = argv[0]
+            if not s:
+                return 0
+            ctx, cw = self.prepare_ctx(ctx)
+            return len(self.read_mem_string(s, cw))
+
+        reg("lstrlenA", lstrlen_impl, 1)
+        reg("lstrlenW", lstrlen_impl, 1)
+
+        def lstrcmp_impl(self, emu, argv, ctx=None):
+            a, b = argv
+            if not a or not b:
+                return 0
+            ctx, cw = self.prepare_ctx(ctx)
+            sa = self.read_mem_string(a, cw)
+            sb = self.read_mem_string(b, cw)
+            if sa == sb:
+                return 0
+            return -1 if sa < sb else 1
+
+        reg("lstrcmpA", lstrcmp_impl, 2)
+        reg("lstrcmpW", lstrcmp_impl, 2)
+        reg("lstrcmpiA", lstrcmp_impl, 2)
+        reg("lstrcmpiW", lstrcmp_impl, 2)
+
+        def lstrcpy_impl(self, emu, argv, ctx=None):
+            dst, src = argv
+            if not dst or not src:
+                return 0
+            ctx, cw = self.prepare_ctx(ctx)
+            s = self.read_mem_string(src, cw)
+            self.write_mem_string(s, dst, cw)
+            return dst
+
+        reg("lstrcpyA", lstrcpy_impl, 2)
+        reg("lstrcpyW", lstrcpy_impl, 2)
+
+        def lstrcat_impl(self, emu, argv, ctx=None):
+            dst, src = argv
+            if not dst or not src:
+                return 0
+            ctx, cw = self.prepare_ctx(ctx)
+            d = self.read_mem_string(dst, cw)
+            s = self.read_mem_string(src, cw)
+            self.write_mem_string(d + s, dst, cw)
+            return dst
+
+        reg("lstrcatA", lstrcat_impl, 2)
+        reg("lstrcatW", lstrcat_impl, 2)
+
+        def char_case_impl(upper, wide):
+            def impl(self, emu, argv, ctx=None):
+                s = argv[0]
+                if not s:
+                    return 0
+                if wide:
+                    txt = self.read_wide_string(s)
+                    self.write_wide_string(txt.upper() if upper else txt.lower(), s)
+                else:
+                    txt = self.read_string(s)
+                    self.write_string(txt.upper() if upper else txt.lower(), s)
+                return s
+
+            return impl
+
+        reg("CharUpperA", char_case_impl(True, False), 1)
+        reg("CharUpperW", char_case_impl(True, True), 1)
+        reg("CharLowerA", char_case_impl(False, False), 1)
+        reg("CharLowerW", char_case_impl(False, True), 1)
+
+        def CharUpperBuff_impl(self, emu, argv, ctx=None):
+            s, count = argv
+            if not s:
+                return 0
+            data = self.mem_read(s, count)
+            self.mem_write(s, data.upper())
+            return count
+
+        reg("CharUpperBuffW", CharUpperBuff_impl, 2)
+        reg("CharLowerBuffW", CharUpperBuff_impl, 2)
+
+        def GetMessagePos_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetMessagePos", GetMessagePos_impl, 0)
+
+        def GetMessageTime_impl(self, emu, argv, ctx=None):
+            return self.timer_count
+
+        reg("GetMessageTime", GetMessageTime_impl, 0)
+
+        def GetKeyState_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetKeyState", GetKeyState_impl, 1)
+
+        def IsWindow_impl(self, emu, argv, ctx=None):
+            hwnd = argv[0]
+            if not hwnd:
+                return False
+            return hwnd in self.wndprocs
+
+        reg("IsWindow", IsWindow_impl, 1)
+
+        def GetWindowTextLength_impl(self, emu, argv, ctx=None):
+            hwnd = argv[0]
+            text = self.window_text.get(hwnd, "")
+            return len(text)
+
+        reg("GetWindowTextLengthW", GetWindowTextLength_impl, 1)
+        reg("GetWindowTextLengthA", GetWindowTextLength_impl, 1)
+
+        def SetWindowText_impl(self, emu, argv, ctx=None):
+            hwnd, text = argv
+            if not text:
+                return False
+            ctx, cw = self.prepare_ctx(ctx)
+            self.window_text[hwnd] = self.read_mem_string(text, cw)
+            return True
+
+        reg("SetWindowTextW", SetWindowText_impl, 2)
+        reg("SetWindowTextA", SetWindowText_impl, 2)
+
+        def EnableWindow_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("EnableWindow", EnableWindow_impl, 2)
+
+        def IsWindowVisible_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("IsWindowVisible", IsWindowVisible_impl, 1)
+
+        def IsIconic_impl(self, emu, argv, ctx=None):
+            return False
+
+        reg("IsIconic", IsIconic_impl, 1)
+
+        def GetFocus_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetFocus", GetFocus_impl, 0)
+
+        def SetFocus_impl(self, emu, argv, ctx=None):
+            return argv[0]
+
+        reg("SetFocus", SetFocus_impl, 1)
+
+        def SetForegroundWindow_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("SetForegroundWindow", SetForegroundWindow_impl, 1)
+
+        def GetActiveWindow_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetActiveWindow", GetActiveWindow_impl, 0)
+
+        def SetActiveWindow_impl(self, emu, argv, ctx=None):
+            return argv[0]
+
+        reg("SetActiveWindow", SetActiveWindow_impl, 1)
+
+        def MoveWindow_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("MoveWindow", MoveWindow_impl, 6)
+
+        def GetWindowRect_impl(self, emu, argv, ctx=None):
+            hwnd, rect = argv
+            if rect:
+                self.mem_write(rect, b"\x00" * 16)
+            return True
+
+        reg("GetWindowRect", GetWindowRect_impl, 2)
+
+        def ScreenToClient_impl(self, emu, argv, ctx=None):
+            hwnd, point = argv
+            if point:
+                self.mem_write(point, b"\x00\x00\x00\x00" * 2)
+            return True
+
+        reg("ScreenToClient", ScreenToClient_impl, 2)
+        reg("ClientToScreen", ScreenToClient_impl, 2)
+
+        def GetDlgCtrlID_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetDlgCtrlID", GetDlgCtrlID_impl, 1)
+
+        def GetDlgItem_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetDlgItem", GetDlgItem_impl, 2)
+
+        def GetWindowLongPtr_impl(self, emu, argv, ctx=None):
+            hwnd, index = argv
+            return 0
+
+        reg("GetWindowLongPtrW", GetWindowLongPtr_impl, 2)
+        reg("GetWindowLongPtrA", GetWindowLongPtr_impl, 2)
+
+        def SetWindowLongPtr_impl(self, emu, argv, ctx=None):
+            hwnd, index, value = argv
+            if index in (0xFFFFFFFC, 0xFFFFFFF8):  # GWLP_WNDPROC / GWLP_HINSTANCE-ish
+                self.wndprocs[hwnd] = value
+            return 0
+
+        reg("SetWindowLongPtrW", SetWindowLongPtr_impl, 3)
+        reg("SetWindowLongPtrA", SetWindowLongPtr_impl, 3)
+
+        def MessageBeep_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("MessageBeep", MessageBeep_impl, 1)
+
+        def GetWindowPlacement_impl(self, emu, argv, ctx=None):
+            hwnd, wndpl = argv
+            if wndpl:
+                self.mem_write(wndpl, b"\x00" * 40)
+            return True
+
+        reg("GetWindowPlacement", GetWindowPlacement_impl, 2)
+
+        def SetWindowPlacement_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("SetWindowPlacement", SetWindowPlacement_impl, 2)
+
+        def GetWindow_impl(self, emu, argv, ctx=None):
+            hwnd, cmd = argv
+            return 0
+
+        reg("GetWindow", GetWindow_impl, 2)
+
+        def GetWindowThreadProcessId_impl(self, emu, argv, ctx=None):
+            hwnd, pid_out = argv
+            proc = emu.get_current_process()
+            if pid_out:
+                self.mem_write(pid_out, (proc.id if proc else 0).to_bytes(4, "little"))
+            return proc.id if proc else 0
+
+        reg("GetWindowThreadProcessId", GetWindowThreadProcessId_impl, 2)
+
+        # ---- window class / prop / timer / clipboard / text stores ----
+        self.window_classes: dict[int, str] = {}
+        self.window_props: dict[int, dict[int, int]] = {}
+        self.timers: dict[int, int] = {}
+        self.clipboard: dict[int, bytes] = {}
+        self.clipboard_formats: dict[str, int] = {}
+        self.next_clipboard_format = 0xC000
+        self.cursor: int = 0
+        self.cursor_pos: tuple = (100, 100)
+        self.window_rects: dict[int, tuple] = {}
+
+        def GetClassName_impl(self, emu, argv, ctx=None):
+            hwnd, buf, size = argv
+            if not buf:
+                return 0
+            name = self.window_classes.get(hwnd, "")
+            if len(name) + 1 > size:
+                return 0
+            ctx, cw = self.prepare_ctx(ctx)
+            self.write_mem_string(name, buf, cw)
+            return len(name)
+
+        reg("GetClassNameW", GetClassName_impl, 3)
+        reg("GetClassNameA", GetClassName_impl, 3)
+
+        def GetProp_impl(self, emu, argv, ctx=None):
+            hwnd, atom = argv
+            props = self.window_props.get(hwnd, {})
+            return props.get(atom, 0)
+
+        reg("GetPropW", GetProp_impl, 2)
+        reg("GetPropA", GetProp_impl, 2)
+
+        def SetProp_impl(self, emu, argv, ctx=None):
+            hwnd, atom, value = argv
+            self.window_props.setdefault(hwnd, {})[atom] = value
+            return True
+
+        reg("SetPropW", SetProp_impl, 3)
+        reg("SetPropA", SetProp_impl, 3)
+
+        def RemoveProp_impl(self, emu, argv, ctx=None):
+            hwnd, atom = argv
+            props = self.window_props.get(hwnd, {})
+            return props.pop(atom, 0)
+
+        reg("RemovePropW", RemoveProp_impl, 2)
+        reg("RemovePropA", RemoveProp_impl, 2)
+
+        def SetTimer_impl(self, emu, argv, ctx=None):
+            hwnd, id_, elapse, proc = argv
+            tid = id_ if id_ else 1
+            self.timers[(hwnd, tid)] = elapse
+            return tid
+
+        reg("SetTimer", SetTimer_impl, 4)
+
+        def KillTimer_impl(self, emu, argv, ctx=None):
+            hwnd, id_ = argv
+            self.timers.pop((hwnd, id_), None)
+            return True
+
+        reg("KillTimer", KillTimer_impl, 2)
+
+        def GetQueueStatus_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetQueueStatus", GetQueueStatus_impl, 1)
+
+        def WaitMessage_impl(self, emu, argv, ctx=None):
+            return False
+
+        reg("WaitMessage", WaitMessage_impl, 0)
+
+        def OpenClipboard_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("OpenClipboard", OpenClipboard_impl, 1)
+
+        def CloseClipboard_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("CloseClipboard", CloseClipboard_impl, 0)
+
+        def EmptyClipboard_impl(self, emu, argv, ctx=None):
+            self.clipboard.clear()
+            return True
+
+        reg("EmptyClipboard", EmptyClipboard_impl, 0)
+
+        def SetClipboardData_impl(self, emu, argv, ctx=None):
+            fmt, data = argv
+            if not data:
+                return 0
+            size = 0
+            if fmt == 13:  # CF_UNICODETEXT
+                raw = self.read_wide_string(data)
+                self.clipboard[fmt] = raw.encode("utf-16le") + b"\x00\x00"
+                size = len(raw) * 2 + 2
+            elif fmt == 1:  # CF_TEXT
+                raw = self.read_string(data)
+                self.clipboard[fmt] = raw.encode("latin-1") + b"\x00"
+                size = len(raw) + 1
+            else:
+                self.clipboard[fmt] = b""
+            return data
+
+        reg("SetClipboardData", SetClipboardData_impl, 2)
+
+        def GetClipboardData_impl(self, emu, argv, ctx=None):
+            fmt = argv[0]
+            raw = self.clipboard.get(fmt)
+            if raw is None:
+                return 0
+            buf = self.mem_alloc(len(raw), tag="api.user32.clipboard")
+            self.mem_write(buf, raw)
+            return buf
+
+        reg("GetClipboardData", GetClipboardData_impl, 1)
+
+        def IsClipboardFormatAvailable_impl(self, emu, argv, ctx=None):
+            fmt = argv[0]
+            return fmt in self.clipboard
+
+        reg("IsClipboardFormatAvailable", IsClipboardFormatAvailable_impl, 1)
+
+        def RegisterClipboardFormat_impl(self, emu, argv, ctx=None):
+            name = argv[0]
+            if not name:
+                return 0
+            s = self.read_wide_string(name)
+            fmt = self.clipboard_formats.get(s)
+            if fmt is None:
+                fmt = self.next_clipboard_format
+                self.next_clipboard_format += 1
+                self.clipboard_formats[s] = fmt
+            return fmt
+
+        reg("RegisterClipboardFormatW", RegisterClipboardFormat_impl, 1)
+        reg("RegisterClipboardFormatA", RegisterClipboardFormat_impl, 1)
+
+        def CountClipboardFormats_impl(self, emu, argv, ctx=None):
+            return len(self.clipboard)
+
+        reg("CountClipboardFormats", CountClipboardFormats_impl, 0)
+
+        def EnumClipboardFormats_impl(self, emu, argv, ctx=None):
+            fmt = argv[0]
+            formats = sorted(self.clipboard.keys())
+            if fmt == 0:
+                return formats[0] if formats else 0
+            for f in formats:
+                if f > fmt:
+                    return f
+            return 0
+
+        reg("EnumClipboardFormats", EnumClipboardFormats_impl, 1)
+
+        def GetPriorityClipboardFormat_impl(self, emu, argv, ctx=None):
+            formats, count = argv
+            if not formats:
+                return 0
+            for i in range(min(count, 8)):
+                fmt = int.from_bytes(self.mem_read(formats + i * 4, 4), "little")
+                if fmt in self.clipboard:
+                    return fmt
+            return 0
+
+        reg("GetPriorityClipboardFormat", GetPriorityClipboardFormat_impl, 2)
+
+        def SetCursor_impl(self, emu, argv, ctx=None):
+            old = self.cursor
+            self.cursor = argv[0]
+            return old
+
+        reg("SetCursor", SetCursor_impl, 1)
+
+        def SetCursorPos_impl(self, emu, argv, ctx=None):
+            x, y = argv
+            self.cursor_pos = (x, y)
+            return True
+
+        reg("SetCursorPos", SetCursorPos_impl, 2)
+
+        def GetCursorPos_impl(self, emu, argv, ctx=None):
+            out = argv[0]
+            if not out:
+                return False
+            x, y = self.cursor_pos
+            self.mem_write(out, struct.pack("<ii", x, y))
+            return True
+
+        reg("GetCursorPos", GetCursorPos_impl, 1)
+
+        def ShowCursor_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("ShowCursor", ShowCursor_impl, 1)
+
+        def SetCapture_impl(self, emu, argv, ctx=None):
+            return argv[0]
+
+        reg("SetCapture", SetCapture_impl, 1)
+
+        def ReleaseCapture_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("ReleaseCapture", ReleaseCapture_impl, 0)
+
+        def GetCapture_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetCapture", GetCapture_impl, 0)
+
+        def InvalidateRect_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("InvalidateRect", InvalidateRect_impl, 3)
+
+        def ValidateRect_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("ValidateRect", ValidateRect_impl, 2)
+
+        def GetUpdateRect_impl(self, emu, argv, ctx=None):
+            hwnd, rect, erase = argv
+            if rect:
+                self.mem_write(rect, b"\x00" * 16)
+            return False
+
+        reg("GetUpdateRect", GetUpdateRect_impl, 3)
+
+        def BeginPaint_impl(self, emu, argv, ctx=None):
+            hwnd, ps = argv
+            if ps:
+                self.mem_write(ps, b"\x00" * 64)
+            return self.get_handle()
+
+        reg("BeginPaint", BeginPaint_impl, 2)
+
+        def EndPaint_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("EndPaint", EndPaint_impl, 2)
+
+        def GetDCEx_impl(self, emu, argv, ctx=None):
+            return self.get_handle()
+
+        reg("GetDCEx", GetDCEx_impl, 3)
+
+        def GetWindowDC_impl(self, emu, argv, ctx=None):
+            return self.get_handle()
+
+        reg("GetWindowDC", GetWindowDC_impl, 1)
+
+        def SetWindowPos_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("SetWindowPos", SetWindowPos_impl, 7)
+
+        def IsChild_impl(self, emu, argv, ctx=None):
+            return False
+
+        reg("IsChild", IsChild_impl, 2)
+
+        def GetDlgItemText_impl(self, emu, argv, ctx=None):
+            dlg, id_, buf, size = argv
+            if not buf:
+                return 0
+            ctx, cw = self.prepare_ctx(ctx)
+            text = self.window_text.get(dlg, "")
+            if len(text) + 1 > size:
+                return 0
+            self.write_mem_string(text, buf, cw)
+            return len(text)
+
+        reg("GetDlgItemTextW", GetDlgItemText_impl, 4)
+        reg("GetDlgItemTextA", GetDlgItemText_impl, 4)
+
+        def SetDlgItemText_impl(self, emu, argv, ctx=None):
+            dlg, id_, text = argv
+            if not text:
+                return False
+            ctx, cw = self.prepare_ctx(ctx)
+            self.window_text[dlg] = self.read_mem_string(text, cw)
+            return True
+
+        reg("SetDlgItemTextW", SetDlgItemText_impl, 3)
+        reg("SetDlgItemTextA", SetDlgItemText_impl, 3)
+
+        def GetDlgItemInt_impl(self, emu, argv, ctx=None):
+            dlg, id_, trans, signed = argv
+            return 0
+
+        reg("GetDlgItemInt", GetDlgItemInt_impl, 4)
+
+        def GetKeyNameText_impl(self, emu, argv, ctx=None):
+            lparam, buf, size = argv
+            if not buf:
+                return 0
+            self.write_string("", buf)
+            return 0
+
+        reg("GetKeyNameTextW", GetKeyNameText_impl, 3)
+        reg("GetKeyNameTextA", GetKeyNameText_impl, 3)
+
+        def MapVirtualKey_impl(self, emu, argv, ctx=None):
+            code, maptype = argv
+            return code & 0xFF
+
+        reg("MapVirtualKeyW", MapVirtualKey_impl, 2)
+        reg("MapVirtualKeyA", MapVirtualKey_impl, 2)
+        reg("MapVirtualKeyExW", MapVirtualKey_impl, 3)
+        reg("MapVirtualKeyExA", MapVirtualKey_impl, 3)
+
+        def VkKeyScan_impl(self, emu, argv, ctx=None):
+            c = argv[0] & 0xFF
+            if 0x61 <= c <= 0x7A:
+                c -= 0x20
+            return c
+
+        reg("VkKeyScanW", VkKeyScan_impl, 1)
+        reg("VkKeyScanA", VkKeyScan_impl, 1)
+
+        def GetKeyboardState_impl(self, emu, argv, ctx=None):
+            out = argv[0]
+            if not out:
+                return False
+            self.mem_write(out, b"\x00" * 256)
+            return True
+
+        reg("GetKeyboardState", GetKeyboardState_impl, 1)
+
+        def SetKeyboardState_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("SetKeyboardState", SetKeyboardState_impl, 1)
+
+        def ToAscii_impl(self, emu, argv, ctx=None):
+            vk, scan, state, out, flags = argv
+            if not out:
+                return 0
+            self.mem_write(out, b"\x00\x00")
+            return 0
+
+        reg("ToAscii", ToAscii_impl, 5)
+        reg("ToUnicode", ToAscii_impl, 6)
+
+        def GetKeyboardLayoutName_impl(self, emu, argv, ctx=None):
+            buf = argv[0]
+            if not buf:
+                return False
+            self.write_wide_string("00000409", buf)
+            return True
+
+        reg("GetKeyboardLayoutNameW", GetKeyboardLayoutName_impl, 1)
+        reg("GetKeyboardLayoutNameA", GetKeyboardLayoutName_impl, 1)
+
+        def LoadKeyboardLayout_impl(self, emu, argv, ctx=None):
+            return 0x4090409
+
+        reg("LoadKeyboardLayoutW", LoadKeyboardLayout_impl, 2)
+        reg("LoadKeyboardLayoutA", LoadKeyboardLayout_impl, 2)
+
+        def GetKeyboardLayout_impl(self, emu, argv, ctx=None):
+            return 0x4090409
+
+        reg("GetKeyboardLayout", GetKeyboardLayout_impl, 1)
+
+        def ActivateKeyboardLayout_impl(self, emu, argv, ctx=None):
+            return argv[0]
+
+        reg("ActivateKeyboardLayout", ActivateKeyboardLayout_impl, 2)
+
+        def GetDoubleClickTime_impl(self, emu, argv, ctx=None):
+            return 500
+
+        reg("GetDoubleClickTime", GetDoubleClickTime_impl, 0)
+
+        def SetDoubleClickTime_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("SetDoubleClickTime", SetDoubleClickTime_impl, 1)
+
+        def WindowFromPoint_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("WindowFromPoint", WindowFromPoint_impl, 1)
+
+        def ChildWindowFromPoint_impl(self, emu, argv, ctx=None):
+            hwnd, pt = argv
+            return 0
+
+        reg("ChildWindowFromPoint", ChildWindowFromPoint_impl, 2)
+
+        def GetMessageExtraInfo_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetMessageExtraInfo", GetMessageExtraInfo_impl, 0)
+
+        def SetMessageExtraInfo_impl(self, emu, argv, ctx=None):
+            return argv[0]
+
+        reg("SetMessageExtraInfo", SetMessageExtraInfo_impl, 1)
+
+        def GetSystemMenu_impl(self, emu, argv, ctx=None):
+            hwnd, revert = argv
+            return 0
+
+        reg("GetSystemMenu", GetSystemMenu_impl, 2)
+
+        def CreatePopupMenu_impl(self, emu, argv, ctx=None):
+            return self.get_handle()
+
+        reg("CreatePopupMenu", CreatePopupMenu_impl, 0)
+
+        def DestroyMenu_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("DestroyMenu", DestroyMenu_impl, 1)
+
+        def AppendMenu_impl(self, emu, argv, ctx=None):
+            menu, flags, id_, text = argv
+            return True
+
+        reg("AppendMenuW", AppendMenu_impl, 4)
+        reg("AppendMenuA", AppendMenu_impl, 4)
+
+        def GetMenuItemCount_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetMenuItemCount", GetMenuItemCount_impl, 1)
+
+        def TrackPopupMenu_impl(self, emu, argv, ctx=None):
+            return False
+
+        reg("TrackPopupMenu", TrackPopupMenu_impl, 7)
+
+        def DrawIcon_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("DrawIcon", DrawIcon_impl, 4)
+
+        def DrawIconEx_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("DrawIconEx", DrawIconEx_impl, 9)
+
+        def LoadImage_impl(self, emu, argv, ctx=None):
+            inst, name, typ, cx, cy, flags = argv
+            return self.get_handle()
+
+        reg("LoadImageW", LoadImage_impl, 6)
+        reg("LoadImageA", LoadImage_impl, 6)
+
+        def LoadIcon_impl(self, emu, argv, ctx=None):
+            return self.get_handle()
+
+        reg("LoadIconW", LoadIcon_impl, 2)
+        reg("LoadIconA", LoadIcon_impl, 2)
+
+        def GetIconInfo_impl(self, emu, argv, ctx=None):
+            icon, out = argv
+            if not out:
+                return False
+            self.mem_write(out, b"\x00" * 40)
+            return False
+
+        reg("GetIconInfo", GetIconInfo_impl, 2)
+
+        def DestroyIcon_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("DestroyIcon", DestroyIcon_impl, 1)
+
+        def IsDialogMessage_impl(self, emu, argv, ctx=None):
+            return False
+
+        reg("IsDialogMessageW", IsDialogMessage_impl, 2)
+        reg("IsDialogMessageA", IsDialogMessage_impl, 2)
+
+        def GetDlgCtrlID_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetDlgCtrlID", GetDlgCtrlID_impl, 1)
+
+        def SetWindowRgn_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("SetWindowRgn", SetWindowRgn_impl, 3)
+
+        def GetWindowRgn_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetWindowRgn", GetWindowRgn_impl, 2)
+
+        def RedrawWindow_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("RedrawWindow", RedrawWindow_impl, 4)
+
+        def UpdateLayeredWindow_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("UpdateLayeredWindow", UpdateLayeredWindow_impl, 9)
+
+        def GetLayeredWindowAttributes_impl(self, emu, argv, ctx=None):
+            return False
+
+        reg("GetLayeredWindowAttributes", GetLayeredWindowAttributes_impl, 4)
+
+        def SetLayeredWindowAttributes_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("SetLayeredWindowAttributes", SetLayeredWindowAttributes_impl, 4)
+
+        def ScrollWindow_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("ScrollWindow", ScrollWindow_impl, 5)
+
+        def ScrollWindowEx_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("ScrollWindowEx", ScrollWindowEx_impl, 8)
+
+        def GetScrollInfo_impl(self, emu, argv, ctx=None):
+            hwnd, bar, info = argv
+            if info:
+                self.mem_write(info, b"\x00" * 28)
+            return False
+
+        reg("GetScrollInfo", GetScrollInfo_impl, 3)
+
+        def SetScrollInfo_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("SetScrollInfo", SetScrollInfo_impl, 4)
+
+        def GetScrollPos_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetScrollPos", GetScrollPos_impl, 2)
+
+        def SetScrollPos_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("SetScrollPos", SetScrollPos_impl, 4)
+
+        def EnableScrollBar_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("EnableScrollBar", EnableScrollBar_impl, 3)
+
+        def GetWindowInfo_impl(self, emu, argv, ctx=None):
+            hwnd, info = argv
+            if info:
+                self.mem_write(info, b"\x00" * 60)
+            return True
+
+        reg("GetWindowInfo", GetWindowInfo_impl, 2)
+
+        def GetTitleBarInfo_impl(self, emu, argv, ctx=None):
+            hwnd, info = argv
+            if info:
+                self.mem_write(info, b"\x00" * 44)
+            return True
+
+        reg("GetTitleBarInfo", GetTitleBarInfo_impl, 2)
+
+        def GetMenuBarInfo_impl(self, emu, argv, ctx=None):
+            return False
+
+        reg("GetMenuBarInfo", GetMenuBarInfo_impl, 4)
+
+        def FlashWindow_impl(self, emu, argv, ctx=None):
+            return False
+
+        reg("FlashWindow", FlashWindow_impl, 2)
+
+        def FlashWindowEx_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("FlashWindowEx", FlashWindowEx_impl, 1)
+
+        def SetForegroundWindow_impl(self, emu, argv, ctx=None):
+            return True
+
+        reg("SetForegroundWindow", SetForegroundWindow_impl, 1)
+
+        def GetForegroundWindow_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetForegroundWindow", GetForegroundWindow_impl, 0)
+
+        def GetWindowLongPtr_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetWindowLongPtrW", GetWindowLongPtr_impl, 2)
+        reg("GetWindowLongPtrA", GetWindowLongPtr_impl, 2)
+
+        def GetUserObjectInformation_impl(self, emu, argv, ctx=None):
+            obj, index, info, size, needed = argv
+            if needed:
+                self.mem_write(needed, b"\x00\x00\x00\x00")
+            return False
+
+        reg("GetUserObjectInformationW", GetUserObjectInformation_impl, 5)
+        reg("GetUserObjectInformationA", GetUserObjectInformation_impl, 5)
+
+        def GetProcessWindowStation_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetProcessWindowStation", GetProcessWindowStation_impl, 0)
+
+        def GetThreadDesktop_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetThreadDesktop", GetThreadDesktop_impl, 1)
+
+        def OpenInputDesktop_impl(self, emu, argv, ctx=None):
+            return 0
+
+        reg("OpenInputDesktop", OpenInputDesktop_impl, 3)
+
+        def GetWindowTextLength_impl(self, emu, argv, ctx=None):
+            hwnd = argv[0]
+            return len(self.window_text.get(hwnd, ""))
+
+        reg("GetWindowTextLengthW", GetWindowTextLength_impl, 1)
+        reg("GetWindowTextLengthA", GetWindowTextLength_impl, 1)
 
     def get_synthetic_async_key_state(self, vkey):
         if self.synthetic_async_key_index >= len(self.synthetic_async_keys):
@@ -790,7 +1680,8 @@ class User32(api.ApiHandler):
         ctx, cw = self.prepare_ctx(ctx)
         hnd, pstr, maxc = argv
 
-        win_text = "speakeasy window"
+        win_text = self.window_text.get(hnd, "")
+        win_text = win_text[: max(maxc, 0)]
         if pstr:
             if cw == 2:
                 wt = (win_text).encode("utf-16le")

@@ -6,6 +6,8 @@ import sys
 import speakeasy.winenv.arch as _arch
 from speakeasy.errors import ApiEmuError
 from speakeasy.winenv.api import api
+from speakeasy.winenv.api.generated import lookup_stub_data as _lookup_stub_data
+from speakeasy.winenv.api.generated import lookup_stub_func as _lookup_stub_func
 from speakeasy.winenv.api.kernelmode import *  # noqa
 from speakeasy.winenv.api.usermode import *  # noqa
 
@@ -69,6 +71,20 @@ class WindowsApi:
         if not mod:
             return None, None
         return (mod, mod.get_func_handler(exp_name))
+
+    def get_stub_func_handler(self, mod_name, exp_name):
+        """
+        Return a generated stub handler (name, func, argc, conv, ordinal) for an
+        otherwise unsupported export, or None when no stub exists.
+        """
+        return _lookup_stub_func(mod_name, exp_name)
+
+    def get_stub_data_handler(self, mod_name, exp_name):
+        """
+        Return True when a generated data stub exists for the export, so the
+        import can be resolved to a zero-initialized data slot.
+        """
+        return _lookup_stub_data(mod_name, exp_name)
 
     def call_api_func(self, mod, func, argv, ctx):
         """

@@ -119,10 +119,17 @@ class File:
         else:
             self._size = 0
 
+    def _ensure_stream(self):
+        """Wrap bytes-backed data in a seekable BytesIO so read/seek work."""
+        if isinstance(self.data, bytes):
+            self.data = io.BytesIO(self.data)
+        return self.data
+
     def get_size(self):
         if not self.data and self.config:
             self.data = self.handle_file_data()
             self._sync_size()
+        self._ensure_stream()
         return self._size
 
     def get_data(self, size=-1, reset_pointer=False):
@@ -133,6 +140,7 @@ class File:
         if not self.data:
             return b""
 
+        self._ensure_stream()
         off = self.data.tell()
         if off == self._size:
             if reset_pointer:
@@ -147,10 +155,12 @@ class File:
         if whence not in [io.SEEK_CUR, io.SEEK_SET, io.SEEK_END]:
             return
         if self.data:
+            self._ensure_stream()
             self.data.seek(offset, whence)
 
     def tell(self):
         if self.data:
+            self._ensure_stream()
             return self.data.tell()
         return None
 

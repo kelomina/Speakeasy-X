@@ -169,6 +169,33 @@ def normalize_dll_name(name):
     elif name.lower().startswith("api-ms-win-core"):
         ret = "kernel32"
 
+    # The remaining api-ms-win-* contracts redirect to their target DLLs;
+    # funnel each to the handler that implements that target.
+    elif name.lower().startswith("api-ms-win-service"):
+        ret = "sechost"
+    elif name.lower().startswith("api-ms-win-shcore"):
+        ret = "shcore"
+    elif name.lower().startswith(
+        (
+            "api-ms-win-security-base",
+            "api-ms-win-security-activedirectoryclient",
+            "api-ms-win-eventing-classicprovider",
+            "api-ms-win-eventing-provider",
+            "api-ms-win-downlevel",
+            "api-ms-win-stateseparation",
+        )
+    ):
+        ret = "kernelbase"
+    elif name.lower().startswith(
+        (
+            "api-ms-win-security-accesshlpr",
+            "api-ms-win-security-capability",
+            "api-ms-win-security-sddl",
+            "api-ms-win-eventing-obsolete",
+        )
+    ):
+        ret = "sechost"
+
     return ret
 
 

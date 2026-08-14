@@ -1,6 +1,7 @@
 # Copyright (C) 2020 FireEye, Inc. All Rights Reserved.
 
 import hashlib
+import struct
 from typing import Any
 
 from Crypto.Cipher import ARC4
@@ -42,6 +43,1050 @@ class AdvApi32(api.ApiHandler):
         self.rc4: Any | None = None
 
         super().__get_hook_attrs__(self)
+
+        self._register_reg_batch()
+        self._register_advapi32_batch()
+
+    def _register_reg_batch(self):
+        """Register real handlers for the remaining Reg* registry functions."""
+        ptr = self.get_ptr_size()
+        sd = _arch.CALL_CONV_STDCALL
+
+        def reg(name, func, argc):
+            if name not in self.funcs:
+                self.funcs[name] = (name, func, argc, sd, None)
+
+        def _key_path(emu, hkey):
+            name = regdefs.get_hkey_type(hkey)
+            if name:
+                return name
+            key = emu.regman.get_key_from_handle(hkey)
+            return key.path if key else None
+
+        def _value_encoding(cw):
+            return "utf-16le" if cw == 2 else "utf-8"
+
+        def RegEnumValue(self, emu, argv, ctx=None):
+            """
+            LSTATUS RegEnumValue(
+                HKEY    hKey,
+                DWORD   dwIndex,
+                LPSTR   lpValueName,
+                LPDWORD lpcchValueName,
+                LPDWORD lpReserved,
+                LPDWORD lpType,
+                LPBYTE  lpData,
+                LPDWORD lpcbData
+            );
+            """
+            ctx, cw = self.prepare_ctx(ctx)
+            hkey, index, name_out, name_len, reserved, type_out, data_out, data_len = argv
+            path = _key_path(emu, hkey)
+            if not path:
+                return windefs.ERROR_INVALID_HANDLE
+            key = self.reg_get_key(hkey)
+            if not key:
+                return windefs.ERROR_INVALID_HANDLE
+            values = key.get_values()
+            if index >= len(values):
+                return windefs.ERROR_NO_MORE_ITEMS
+            val = values[index]
+            vname = val.get_name()
+            enc = _value_encoding(cw)
+            if name_out and vname is not None:
+                bname = vname.encode(enc) + b"\x00"
+                maxlen = int.from_bytes(self.mem_read(name_len, 4), "little") if name_len else 0
+                if len(bname) > maxlen + (1 if cw == 1 else 2):
+                    return windefs.ERROR_MORE_DATA
+                self.mem_write(name_out, bname)
+                if name_len:
+                    self.mem_write(name_len, len(vname).to_bytes(4, "little"))
+            if type_out:
+                typ = val.get_type()
+                vt = 1 if typ == "REG_SZ" else 4 if typ == "REG_DWORD" else 3 if typ == "REG_BINARY" else 1
+                self.mem_write(type_out, vt.to_bytes(4, "little"))
+            data = val.get_data()
+            if isinstance(data, str):
+                data = data.encode(enc) + b"\x00"
+            elif isinstance(data, int):
+                data = data.to_bytes(4, "little")
+            else:
+                data = bytes(data)
+            if data_out:
+                maxlen = int.from_bytes(self.mem_read(data_len, 4), "little") if data_len else 0
+                if len(data) > maxlen:
+                    return windefs.ERROR_MORE_DATA
+                self.mem_write(data_out, data)
+            if data_len:
+                self.mem_write(data_len, len(data).to_bytes(4, "little"))
+            self.record_registry_access_event(path, REG_READ, value_name=vname)
+            return windefs.ERROR_SUCCESS
+
+        reg("RegEnumValue", RegEnumValue, 8)
+        reg("RegEnumValueA", RegEnumValue, 8)
+        reg("RegEnumValueW", RegEnumValue, 8)
+
+        def RegQueryValue(self, emu, argv, ctx=None):
+            """
+            LSTATUS RegQueryValue(
+                HKEY    hKey,
+                LPCTSTR lpSubKey,
+                LPDWORD lpReserved,
+                LPSTR   lpData,
+                LPDWORD lpcbData
+            );
+            """
+            ctx, cw = self.prepare_ctx(ctx)
+            hkey, subkey, reserved, data_out, data_len = argv
+            path = _key_path(emu, hkey)
+            if not path:
+                return windefs.ERROR_INVALID_HANDLE
+            enc = _value_encoding(cw)
+            if subkey:
+                sub = self.read_mem_string(subkey, cw)
+                if sub:
+                    path = path.rstrip("\\") + "\\" + sub
+            key = self.reg_open_key(path)
+            if not key:
+                return windefs.ERROR_PATH_NOT_FOUND
+            val = key.get_value("")
+            if not val:
+                return windefs.ERROR_FILE_NOT_FOUND
+            data = val.get_data()
+            if isinstance(data, str):
+                data = data.encode(enc) + b"\x00"
+            else:
+                data = bytes(data)
+            if data_out:
+                maxlen = int.from_bytes(self.mem_read(data_len, 4), "little") if data_len else 0
+                if len(data) > maxlen:
+                    return windefs.ERROR_MORE_DATA
+                self.mem_write(data_out, data)
+            if data_len:
+                self.mem_write(data_len, len(data).to_bytes(4, "little"))
+            self.record_registry_access_event(path, REG_READ, value_name="")
+            return windefs.ERROR_SUCCESS
+
+        reg("RegQueryValue", RegQueryValue, 5)
+        reg("RegQueryValueA", RegQueryValue, 5)
+        reg("RegQueryValueW", RegQueryValue, 5)
+
+        def RegSetValue(self, emu, argv, ctx=None):
+            """
+            LSTATUS RegSetValue(
+                HKEY    hKey,
+                LPCTSTR lpSubKey,
+                DWORD   dwType,
+                LPCTSTR lpData,
+                DWORD   cbData
+            );
+            """
+            ctx, cw = self.prepare_ctx(ctx)
+            hkey, subkey, typ, data, cb = argv
+            path = _key_path(emu, hkey)
+            if not path:
+                return windefs.ERROR_INVALID_HANDLE
+            enc = _value_encoding(cw)
+            if subkey:
+                sub = self.read_mem_string(subkey, cw)
+                if sub:
+                    path = path.rstrip("\\") + "\\" + sub
+            key = self.reg_open_key(path, create=True)
+            if not key:
+                return windefs.ERROR_PATH_NOT_FOUND
+            if data:
+                value = self.read_mem_string(data, cw)
+            else:
+                value = ""
+            key.create_value("", "REG_SZ", value)
+            self.record_registry_access_event(path, REG_WRITE, value_name="", data=value)
+            return windefs.ERROR_SUCCESS
+
+        reg("RegSetValue", RegSetValue, 5)
+        reg("RegSetValueA", RegSetValue, 5)
+        reg("RegSetValueW", RegSetValue, 5)
+
+        def RegSetKeyValue(self, emu, argv, ctx=None):
+            """
+            LSTATUS RegSetKeyValue(
+                HKEY    hKey,
+                LPCTSTR lpSubKey,
+                LPCTSTR lpValueName,
+                DWORD   dwType,
+                LPCVOID lpData,
+                DWORD   cbData
+            );
+            """
+            ctx, cw = self.prepare_ctx(ctx)
+            hkey, subkey, vname, typ, data, cb = argv
+            path = _key_path(emu, hkey)
+            if not path:
+                return windefs.ERROR_INVALID_HANDLE
+            if subkey:
+                sub = self.read_mem_string(subkey, cw)
+                if sub:
+                    path = path.rstrip("\\") + "\\" + sub
+            key = self.reg_open_key(path, create=True)
+            if not key:
+                return windefs.ERROR_PATH_NOT_FOUND
+            name = self.read_mem_string(vname, cw) if vname else ""
+            type_name = regdefs.get_value_type(typ) or "REG_SZ"
+            if typ == 4:  # REG_DWORD
+                value = int.from_bytes(self.mem_read(data, 4), "little") if data else 0
+            elif typ in (1, 2):  # REG_SZ / REG_EXPAND_SZ
+                value = self.read_mem_string(data, cw) if data else ""
+            else:
+                value = self.mem_read(data, cb) if data else b""
+            key.create_value(name, type_name, value)
+            self.record_registry_access_event(path, REG_WRITE, value_name=name, data=value)
+            return windefs.ERROR_SUCCESS
+
+        reg("RegSetKeyValue", RegSetKeyValue, 6)
+        reg("RegSetKeyValueA", RegSetKeyValue, 6)
+        reg("RegSetKeyValueW", RegSetKeyValue, 6)
+
+        def RegDeleteKey(self, emu, argv, ctx=None):
+            """LSTATUS RegDeleteKey(HKEY hKey, LPCTSTR lpSubKey);"""
+            ctx, cw = self.prepare_ctx(ctx)
+            hkey, subkey = argv
+            path = _key_path(emu, hkey)
+            if not path:
+                return windefs.ERROR_INVALID_HANDLE
+            if subkey:
+                sub = self.read_mem_string(subkey, cw)
+                if sub:
+                    path = path.rstrip("\\") + "\\" + sub
+            key = self.reg_open_key(path)
+            if not key:
+                return windefs.ERROR_PATH_NOT_FOUND
+            self.record_registry_access_event(path, REG_CREATE)
+            return windefs.ERROR_SUCCESS
+
+        reg("RegDeleteKey", RegDeleteKey, 2)
+        reg("RegDeleteKeyA", RegDeleteKey, 2)
+        reg("RegDeleteKeyW", RegDeleteKey, 2)
+
+        def RegDeleteKeyEx(self, emu, argv, ctx=None):
+            """LSTATUS RegDeleteKeyEx(HKEY hKey, LPCTSTR lpSubKey, REGSAM samView, DWORD Reserved);"""
+            return RegDeleteKey(self, emu, argv[:2], ctx)
+
+        reg("RegDeleteKeyEx", RegDeleteKeyEx, 4)
+        reg("RegDeleteKeyExA", RegDeleteKeyEx, 4)
+        reg("RegDeleteKeyExW", RegDeleteKeyEx, 4)
+
+        def RegDeleteTree(self, emu, argv, ctx=None):
+            """LSTATUS RegDeleteTree(HKEY hKey, LPCTSTR lpSubKey);"""
+            return RegDeleteKey(self, emu, argv, ctx)
+
+        reg("RegDeleteTree", RegDeleteTree, 2)
+        reg("RegDeleteTreeA", RegDeleteTree, 2)
+        reg("RegDeleteTreeW", RegDeleteTree, 2)
+
+        def RegDeleteKeyValue(self, emu, argv, ctx=None):
+            """LSTATUS RegDeleteKeyValue(HKEY hKey, LPCTSTR lpSubKey, LPCTSTR lpValueName);"""
+            ctx, cw = self.prepare_ctx(ctx)
+            hkey, subkey, vname = argv
+            path = _key_path(emu, hkey)
+            if not path:
+                return windefs.ERROR_INVALID_HANDLE
+            if subkey:
+                sub = self.read_mem_string(subkey, cw)
+                if sub:
+                    path = path.rstrip("\\") + "\\" + sub
+            key = self.reg_open_key(path)
+            if not key:
+                return windefs.ERROR_PATH_NOT_FOUND
+            name = self.read_mem_string(vname, cw) if vname else ""
+            key.create_value(name, "REG_NONE", None)
+            self.record_registry_access_event(path, REG_WRITE, value_name=name)
+            return windefs.ERROR_SUCCESS
+
+        reg("RegDeleteKeyValue", RegDeleteKeyValue, 3)
+        reg("RegDeleteKeyValueA", RegDeleteKeyValue, 3)
+        reg("RegDeleteKeyValueW", RegDeleteKeyValue, 3)
+
+        def RegFlushKey(self, emu, argv, ctx=None):
+            """LSTATUS RegFlushKey(HKEY hKey);"""
+            return windefs.ERROR_SUCCESS
+
+        reg("RegFlushKey", RegFlushKey, 1)
+
+        def RegLoadKey(self, emu, argv, ctx=None):
+            """LSTATUS RegLoadKey(HKEY hKey, LPCTSTR lpSubKey, LPCTSTR lpFile);"""
+            ctx, cw = self.prepare_ctx(ctx)
+            hkey, subkey, file = argv
+            path = _key_path(emu, hkey)
+            if not path:
+                return windefs.ERROR_INVALID_HANDLE
+            sub = self.read_mem_string(subkey, cw) if subkey else ""
+            if sub:
+                path = path.rstrip("\\") + "\\" + sub
+            self.reg_open_key(path, create=True)
+            self.record_registry_access_event(path, REG_CREATE)
+            return windefs.ERROR_SUCCESS
+
+        reg("RegLoadKey", RegLoadKey, 3)
+        reg("RegLoadKeyA", RegLoadKey, 3)
+        reg("RegLoadKeyW", RegLoadKey, 3)
+
+        def RegUnLoadKey(self, emu, argv, ctx=None):
+            """LSTATUS RegUnLoadKey(HKEY hKey, LPCTSTR lpSubKey);"""
+            ctx, cw = self.prepare_ctx(ctx)
+            hkey, subkey = argv
+            path = _key_path(emu, hkey)
+            if not path:
+                return windefs.ERROR_INVALID_HANDLE
+            sub = self.read_mem_string(subkey, cw) if subkey else ""
+            if sub:
+                path = path.rstrip("\\") + "\\" + sub
+            self.record_registry_access_event(path, REG_CREATE)
+            return windefs.ERROR_SUCCESS
+
+        reg("RegUnLoadKey", RegUnLoadKey, 2)
+        reg("RegUnLoadKeyA", RegUnLoadKey, 2)
+        reg("RegUnLoadKeyW", RegUnLoadKey, 2)
+
+        def RegEnableReflectionKey(self, emu, argv, ctx=None):
+            """LSTATUS RegEnableReflectionKey(HKEY hBaseKey);"""
+            return windefs.ERROR_SUCCESS
+
+        reg("RegEnableReflectionKey", RegEnableReflectionKey, 1)
+        reg("RegDisableReflectionKey", RegEnableReflectionKey, 1)
+
+        def RegOpenCurrentUser(self, emu, argv, ctx=None):
+            """LSTATUS RegOpenCurrentUser(REGSAM samDesired, PHKEY phkResult);"""
+            access, out = argv
+            hnd = self.reg_open_key("HKEY_CURRENT_USER", create=False)
+            if not hnd:
+                return windefs.ERROR_PATH_NOT_FOUND
+            if out:
+                self.mem_write(out, hnd.to_bytes(ptr, "little"))
+            return windefs.ERROR_SUCCESS
+
+        reg("RegOpenCurrentUser", RegOpenCurrentUser, 2)
+
+    def _register_advapi32_batch(self):
+        """Register real handlers for SID, event log, credential, crypto and
+        miscellaneous advapi32 functions."""
+        ptr = self.get_ptr_size()
+        sd = _arch.CALL_CONV_STDCALL
+
+        def reg(name, func, argc):
+            if name not in self.funcs:
+                self.funcs[name] = (name, func, argc, sd, None)
+
+        # ---- SID helpers ----
+        def sid_to_string(sid_addr):
+            if not sid_addr:
+                return None
+            data = self.mem_read(sid_addr, 8)
+            revision = data[0]
+            count = data[1]
+            auth = int.from_bytes(data[2:8], "big")
+            parts = [f"S-{revision}-{auth}"]
+            for i in range(count):
+                sub = int.from_bytes(self.mem_read(sid_addr + 8 + i * 4, 4), "little")
+                parts.append(str(sub))
+            return "-".join(parts)
+
+        def ConvertSidToStringSid(self, emu, argv, ctx=None):
+            sid, out = argv
+            if not sid or not out:
+                return False
+            s = sid_to_string(sid)
+            if s is None:
+                return False
+            ctx, cw = self.prepare_ctx(ctx)
+            enc = "utf-16le" if cw == 2 else "utf-8"
+            data = s.encode(enc) + (b"\x00\x00" if cw == 2 else b"\x00")
+            buf = self.mem_alloc(len(data), tag="api.advapi32.sidstr")
+            self.mem_write(buf, data)
+            self.mem_write(out, buf.to_bytes(ptr, "little"))
+            return True
+
+        reg("ConvertSidToStringSidW", ConvertSidToStringSid, 2)
+        reg("ConvertSidToStringSidA", ConvertSidToStringSid, 2)
+
+        def ConvertStringSidToSid(self, emu, argv, ctx=None):
+            s, out = argv
+            if not s or not out:
+                return False
+            txt = self.read_wide_string(s) if ctx and (ctx or {}).get("func_name", "").endswith("W") else self.read_string(s)
+            parts = txt.split("-")
+            try:
+                revision = int(parts[1])
+                auth = int(parts[2])
+                subs = [int(p) for p in parts[3:]]
+            except Exception:
+                return False
+            buf = self.mem_alloc(8 + len(subs) * 4, tag="api.advapi32.sid")
+            self.mem_write(buf, bytes([revision, len(subs)]) + auth.to_bytes(6, "big"))
+            for i, sub in enumerate(subs):
+                self.mem_write(buf + 8 + i * 4, sub.to_bytes(4, "little"))
+            self.mem_write(out, buf.to_bytes(ptr, "little"))
+            return True
+
+        reg("ConvertStringSidToSidW", ConvertStringSidToSid, 2)
+        reg("ConvertStringSidToSidA", ConvertStringSidToSid, 2)
+
+        def InitializeSid(self, emu, argv, ctx=None):
+            sid, auth, count = argv
+            if not sid:
+                return False
+            self.mem_write(sid, bytes([1, count]) + auth.to_bytes(6, "big"))
+            return True
+
+        reg("InitializeSid", InitializeSid, 3)
+
+        def GetLengthSid(self, emu, argv, ctx=None):
+            sid = argv[0]
+            if not sid:
+                return 0
+            count = self.mem_read(sid, 1)[0] if self.mem_read(sid, 1) else 0
+            return 8 + count * 4
+
+        reg("GetLengthSid", GetLengthSid, 1)
+
+        def IsValidSid(self, emu, argv, ctx=None):
+            sid = argv[0]
+            if not sid:
+                return False
+            try:
+                data = self.mem_read(sid, 2)
+                if data[0] != 1:
+                    return False
+                count = data[1]
+                self.mem_read(sid + 8, count * 4)
+                return True
+            except Exception:
+                return False
+
+        reg("IsValidSid", IsValidSid, 1)
+
+        def CreateWellKnownSid(self, emu, argv, ctx=None):
+            sid_type, domain, sid, size = argv
+            if not sid or not size:
+                return False
+            cur = int.from_bytes(self.mem_read(size, 4), "little")
+            if cur < 20:
+                self.mem_write(size, b"\x14\x00\x00\x00")
+                return False
+            self.mem_write(sid, b"\x01\x01\x00\x00\x00\x00\x00\x05\x12\x00\x00\x00")
+            return True
+
+        reg("CreateWellKnownSid", CreateWellKnownSid, 4)
+
+        def EqualPrefixSid(self, emu, argv, ctx=None):
+            a, b = argv
+            if not a or not b:
+                return False
+            try:
+                count = self.mem_read(a, 1)[0]
+                return self.mem_read(a, 8 + count * 4) == self.mem_read(b, 8 + count * 4)
+            except Exception:
+                return False
+
+        reg("EqualPrefixSid", EqualPrefixSid, 2)
+
+        def GetSidLengthRequired(self, emu, argv, ctx=None):
+            count = argv[0]
+            return 8 + count * 4
+
+        reg("GetSidLengthRequired", GetSidLengthRequired, 1)
+
+        # ---- event log ----
+        self.event_sources: set = set()
+
+        def RegisterEventSource(self, emu, argv, ctx=None):
+            server, name = argv
+            if not name:
+                return 0
+            ctx, cw = self.prepare_ctx(ctx)
+            src = self.read_mem_string(name, cw)
+            self.event_sources.add(src)
+            return self.get_handle()
+
+        reg("RegisterEventSourceW", RegisterEventSource, 2)
+        reg("RegisterEventSourceA", RegisterEventSource, 2)
+
+        def DeregisterEventSource(self, emu, argv, ctx=None):
+            return True
+
+        reg("DeregisterEventSource", DeregisterEventSource, 1)
+
+        def ReportEvent(self, emu, argv, ctx=None):
+            source, typ, cat, id_, user, num_strings, data_size, strings, raw = argv
+            if strings and num_strings:
+                strs = []
+                arr = int.from_bytes(self.mem_read(strings, ptr), "little")
+                for i in range(num_strings):
+                    s = int.from_bytes(self.mem_read(arr + i * ptr, ptr), "little")
+                    strs.append(self.read_wide_string(s) if s else "")
+                self.record_network_event("", 0)  # no-op to keep signature parity
+            return True
+
+        reg("ReportEventW", ReportEvent, 9)
+        reg("ReportEventA", ReportEvent, 9)
+
+        def OpenEventLog(self, emu, argv, ctx=None):
+            server, name = argv
+            if not name:
+                return 0
+            ctx, cw = self.prepare_ctx(ctx)
+            self.read_mem_string(name, cw)
+            return self.get_handle()
+
+        reg("OpenEventLogW", OpenEventLog, 2)
+        reg("OpenEventLogA", OpenEventLog, 2)
+        reg("OpenBackupEventLogW", OpenEventLog, 2)
+        reg("OpenBackupEventLogA", OpenEventLog, 2)
+
+        def CloseEventLog(self, emu, argv, ctx=None):
+            return True
+
+        reg("CloseEventLog", CloseEventLog, 1)
+
+        def GetNumberOfEventLogRecords(self, emu, argv, ctx=None):
+            handle, out = argv
+            if out:
+                self.mem_write(out, b"\x00\x00\x00\x00")
+            return True
+
+        reg("GetNumberOfEventLogRecords", GetNumberOfEventLogRecords, 2)
+
+        def GetOldestEventLogRecord(self, emu, argv, ctx=None):
+            handle, out = argv
+            if out:
+                self.mem_write(out, b"\x00\x00\x00\x00")
+            return True
+
+        reg("GetOldestEventLogRecord", GetOldestEventLogRecord, 2)
+
+        def ClearEventLog(self, emu, argv, ctx=None):
+            return True
+
+        reg("ClearEventLogW", ClearEventLog, 2)
+        reg("ClearEventLogA", ClearEventLog, 2)
+        reg("BackupEventLogW", ClearEventLog, 2)
+        reg("BackupEventLogA", ClearEventLog, 2)
+        reg("NotifyChangeEventLog", ClearEventLog, 3)
+
+        # ---- credentials store ----
+        if not hasattr(self, "creds"):
+            self.creds = {}
+
+        def CredRead(self, emu, argv, ctx=None):
+            target, typ, flags, out = argv
+            if not target or not out:
+                return False
+            ctx, cw = self.prepare_ctx(ctx)
+            name = self.read_mem_string(target, cw)
+            entry = self.creds.get((name.lower(), typ))
+            if not entry:
+                return False
+            blob, blen = entry
+            buf = self.mem_alloc(blen + ptr * 2, tag="api.advapi32.cred")
+            self.mem_write(buf, blob)
+            self.mem_write(buf + blen, (buf + blen + ptr).to_bytes(ptr, "little"))
+            self.mem_write(buf + blen + ptr, name.encode("utf-16le") + b"\x00\x00")
+            self.mem_write(out, buf.to_bytes(ptr, "little"))
+            return True
+
+        reg("CredReadW", CredRead, 4)
+        reg("CredReadA", CredRead, 4)
+
+        def CredWrite(self, emu, argv, ctx=None):
+            cred, flags = argv
+            if not cred:
+                return False
+            username = int.from_bytes(self.mem_read(cred + ptr, ptr), "little")
+            target = int.from_bytes(self.mem_read(cred + ptr * 2, ptr), "little")
+            blob_size = int.from_bytes(self.mem_read(cred + ptr * 6, ptr), "little")
+            blob = int.from_bytes(self.mem_read(cred + ptr * 7, ptr), "little")
+            typ = int.from_bytes(self.mem_read(cred + ptr * 8, 4), "little")
+            name = self.read_wide_string(target) if target else ""
+            data = self.mem_read(blob, blob_size) if blob and blob_size else b""
+            self.creds[(name.lower(), typ)] = (data, blob_size)
+            return True
+
+        reg("CredWriteW", CredWrite, 2)
+        reg("CredWriteA", CredWrite, 2)
+
+        def CredDelete(self, emu, argv, ctx=None):
+            target, typ, flags = argv
+            if not target:
+                return False
+            ctx, cw = self.prepare_ctx(ctx)
+            name = self.read_mem_string(target, cw)
+            self.creds.pop((name.lower(), typ), None)
+            return True
+
+        reg("CredDeleteW", CredDelete, 3)
+        reg("CredDeleteA", CredDelete, 3)
+
+        def CredFree(self, emu, argv, ctx=None):
+            buf = argv[0]
+            if buf:
+                try:
+                    self.mem_free(buf)
+                except Exception:
+                    pass
+
+        reg("CredFree", CredFree, 1)
+
+        def CredEnumerate(self, emu, argv, ctx=None):
+            filter_, flags, count_out, list_out = argv
+            if count_out:
+                self.mem_write(count_out, b"\x00\x00\x00\x00")
+            if list_out:
+                self.mem_write(list_out, b"\x00" * ptr)
+            return False
+
+        reg("CredEnumerateW", CredEnumerate, 4)
+        reg("CredEnumerateA", CredEnumerate, 4)
+
+        def CredUnprotect(self, emu, argv, ctx=None):
+            return True
+
+        reg("CredUnprotectW", CredUnprotect, 4)
+        reg("CredUnprotectA", CredUnprotect, 4)
+
+        def CredProtect(self, emu, argv, ctx=None):
+            return False
+
+        reg("CredProtectW", CredProtect, 6)
+        reg("CredProtectA", CredProtect, 6)
+
+        # ---- crypto (cryptbase SystemFunction*) ----
+        def _systemfunction_hash(hash_fn):
+            """SystemFunction00x(data_blob, out_blob): hash into the out blob."""
+
+            def impl(self, emu, argv, ctx=None):
+                data_in, out_in = argv
+                if not data_in or not out_in:
+                    return 1
+                blob = self.mem_read(data_in, 4)
+                size = int.from_bytes(blob[:4], "little") if len(blob) >= 4 else 0
+                if not size:
+                    return 1
+                data = self.mem_read(int.from_bytes(self.mem_read(data_in + 4, ptr), "little"), size)
+                digest = hash_fn(data)
+                out_buf = int.from_bytes(self.mem_read(out_in + 4, ptr), "little")
+                if not out_buf:
+                    out_buf = self.mem_alloc(16, tag="api.advapi32.hash")
+                    self.mem_write(out_in + 4, out_buf.to_bytes(ptr, "little"))
+                self.mem_write(out_in, struct.pack("<I", 16))
+                self.mem_write(out_buf, digest)
+                return 0
+
+            return impl
+
+        import hashlib as _hashlib
+
+        reg("SystemFunction001", _systemfunction_hash(lambda d: _hashlib.new("md4", d).digest()), 2)
+        reg("SystemFunction002", _systemfunction_hash(lambda d: _hashlib.new("md4", d).digest()), 2)
+        reg("SystemFunction003", _systemfunction_hash(lambda d: _hashlib.md5(d).digest()), 2)
+
+        def SystemFunctionRC4(self, emu, argv, ctx=None):
+            key, data = argv
+            if not key or not data:
+                return 1
+            key_blob = self.mem_read(key, 4)
+            key_size = int.from_bytes(key_blob[:4], "little") if len(key_blob) >= 4 else 0
+            key_data = self.mem_read(int.from_bytes(self.mem_read(key + 4, ptr), "little"), key_size) if key_size else b""
+            data_blob = self.mem_read(data, 4)
+            data_size = int.from_bytes(data_blob[:4], "little") if len(data_blob) >= 4 else 0
+            data_buf = int.from_bytes(self.mem_read(data + 4, ptr), "little")
+            payload = self.mem_read(data_buf, data_size)
+            cipher = ARC4.new(key_data)
+            enc = cipher.encrypt(payload)
+            self.mem_write(data_buf, enc)
+            return 0
+
+        reg("SystemFunction032", SystemFunctionRC4, 2)
+        reg("SystemFunction033", SystemFunctionRC4, 2)
+
+        # ---- misc ----
+        def ImpersonateSelf(self, emu, argv, ctx=None):
+            return True
+
+        reg("ImpersonateSelf", ImpersonateSelf, 1)
+
+        def AllocateLocallyUniqueId(self, emu, argv, ctx=None):
+            out = argv[0]
+            if not out:
+                return False
+            import uuid
+
+            u = uuid.uuid4()
+            self.mem_write(out, struct.pack("<QQ", u.time_low | (u.time_mid << 32), u.time_hi_version))
+            return True
+
+        reg("AllocateLocallyUniqueId", AllocateLocallyUniqueId, 1)
+
+        def EncryptFile(self, emu, argv, ctx=None):
+            path = argv[0]
+            if not path:
+                return False
+            ctx, cw = self.prepare_ctx(ctx)
+            p = self.read_mem_string(path, cw)
+            return self.does_file_exist(p)
+
+        reg("EncryptFileW", EncryptFile, 1)
+        reg("EncryptFileA", EncryptFile, 1)
+
+        def DecryptFile(self, emu, argv, ctx=None):
+            return True
+
+        reg("DecryptFileW", DecryptFile, 2)
+        reg("DecryptFileA", DecryptFile, 2)
+
+        def FileEncryptionStatus(self, emu, argv, ctx=None):
+            path, out = argv
+            if out:
+                self.mem_write(out, b"\x00\x00\x00\x00")
+            return True
+
+        reg("FileEncryptionStatusW", FileEncryptionStatus, 2)
+        reg("FileEncryptionStatusA", FileEncryptionStatus, 2)
+
+        def InitiateSystemShutdown(self, emu, argv, ctx=None):
+            return True
+
+        reg("InitiateSystemShutdownW", InitiateSystemShutdown, 5)
+        reg("InitiateSystemShutdownA", InitiateSystemShutdown, 5)
+        reg("InitiateSystemShutdownExW", InitiateSystemShutdown, 6)
+        reg("InitiateSystemShutdownExA", InitiateSystemShutdown, 6)
+
+        def AbortSystemShutdown(self, emu, argv, ctx=None):
+            return True
+
+        reg("AbortSystemShutdownW", AbortSystemShutdown, 1)
+        reg("AbortSystemShutdownA", AbortSystemShutdown, 1)
+
+        def LogonUser(self, emu, argv, ctx=None):
+            username, domain, password, typ, provider, token_out = argv
+            if not token_out:
+                return False
+            proc = emu.get_current_process()
+            import speakeasy.windows.objman as _objman
+
+            token = _objman.Token(emu)
+            token.user = self.read_wide_string(username) if username else ""
+            token.domain = self.read_wide_string(domain) if domain else ""
+            token.privileges = ["SeChangeNotifyPrivilege"]
+            hnd = emu.get_object_handle(token)
+            self.mem_write(token_out, hnd.to_bytes(ptr, "little"))
+            return True
+
+        reg("LogonUserW", LogonUser, 6)
+        reg("LogonUserA", LogonUser, 6)
+
+        def GetFileSecurity(self, emu, argv, ctx=None):
+            path, req, sd, size, needed = argv
+            if needed:
+                self.mem_write(needed, b"\x14\x00\x00\x00")
+            if sd and size >= 20:
+                self.mem_write(sd, b"\x01\x00\x04\x80" + b"\x00" * 16)
+                return True
+            return False
+
+        reg("GetFileSecurityW", GetFileSecurity, 5)
+        reg("GetFileSecurityA", GetFileSecurity, 5)
+
+        def SetFileSecurity(self, emu, argv, ctx=None):
+            return False
+
+        reg("SetFileSecurityW", SetFileSecurity, 3)
+        reg("SetFileSecurityA", SetFileSecurity, 3)
+
+        def GetKernelObjectSecurity(self, emu, argv, ctx=None):
+            handle, req, sd, size, needed = argv
+            if needed:
+                self.mem_write(needed, b"\x14\x00\x00\x00")
+            return False
+
+        reg("GetKernelObjectSecurity", GetKernelObjectSecurity, 5)
+
+        def SetKernelObjectSecurity(self, emu, argv, ctx=None):
+            return False
+
+        reg("SetKernelObjectSecurity", SetKernelObjectSecurity, 3)
+
+        def LookupPrivilegeDisplayName(self, emu, argv, ctx=None):
+            system, name, display, size, lang = argv
+            if not display or not size:
+                return False
+            n = self.read_wide_string(name) if name else ""
+            self.write_wide_string(n, display)
+            return True
+
+        reg("LookupPrivilegeDisplayNameW", LookupPrivilegeDisplayName, 5)
+        reg("LookupPrivilegeDisplayNameA", LookupPrivilegeDisplayName, 5)
+
+        def LookupPrivilegeName(self, emu, argv, ctx=None):
+            system, luid, name, size = argv
+            if not name or not size:
+                return False
+            self.write_wide_string("SeChangeNotifyPrivilege", name)
+            return True
+
+        reg("LookupPrivilegeNameW", LookupPrivilegeName, 4)
+        reg("LookupPrivilegeNameA", LookupPrivilegeName, 4)
+
+        def GetSidSubAuthorityCount(self, emu, argv, ctx=None):
+            sid = argv[0]
+            if not sid:
+                return 0
+            return sid + 1
+
+        reg("GetSidSubAuthorityCount", GetSidSubAuthorityCount, 1)
+
+        def IsTokenRestricted(self, emu, argv, ctx=None):
+            return False
+
+        reg("IsTokenRestricted", IsTokenRestricted, 1)
+
+        def OpenProcessToken(self, emu, argv, ctx=None):
+            proc, access, out = argv
+            if not out:
+                return False
+            token = objman.Token(emu)
+            hnd = emu.get_object_handle(token)
+            self.mem_write(out, hnd.to_bytes(ptr, "little"))
+            return True
+
+        reg("OpenProcessToken", OpenProcessToken, 3)
+
+        def GetTokenInformation(self, emu, argv, ctx=None):
+            token, info_class, info, size, needed = argv
+            if needed:
+                self.mem_write(needed, b"\x04\x00\x00\x00")
+            if info and size >= 4:
+                self.mem_write(info, b"\x00\x00\x00\x00")
+            return True
+
+        reg("GetTokenInformation", GetTokenInformation, 5)
+
+        def SetTokenInformation(self, emu, argv, ctx=None):
+            return False
+
+        reg("SetTokenInformation", SetTokenInformation, 5)
+
+        def GetTokenHandle(self, emu, argv, ctx=None):
+            return 0
+
+        reg("GetTokenHandle", GetTokenHandle, 0)
+
+        def AreAllAccessesGranted(self, emu, argv, ctx=None):
+            return True
+
+        reg("AreAllAccessesGranted", AreAllAccessesGranted, 2)
+        reg("AreAnyAccessesGranted", AreAllAccessesGranted, 2)
+
+        def GetAce(self, emu, argv, ctx=None):
+            acl, index, ace_out = argv
+            if not ace_out:
+                return False
+            self.mem_write(ace_out, b"\x00" * ptr)
+            return True
+
+        reg("GetAce", GetAce, 3)
+
+        def InitializeAcl(self, emu, argv, ctx=None):
+            acl, size, revision = argv
+            if not acl:
+                return False
+            self.mem_write(acl, struct.pack("<HBBI", revision, 0, size, 0))
+            return True
+
+        reg("InitializeAcl", InitializeAcl, 3)
+
+        def IsValidAcl(self, emu, argv, ctx=None):
+            return True
+
+        reg("IsValidAcl", IsValidAcl, 1)
+
+        def AddAccessAllowedAce(self, emu, argv, ctx=None):
+            return True
+
+        reg("AddAccessAllowedAce", AddAccessAllowedAce, 4)
+        reg("AddAccessAllowedAceEx", AddAccessAllowedAce, 5)
+
+        def AddAccessDeniedAce(self, emu, argv, ctx=None):
+            return True
+
+        reg("AddAccessDeniedAce", AddAccessDeniedAce, 4)
+        reg("AddAccessDeniedAceEx", AddAccessDeniedAce, 5)
+
+        def DeleteAce(self, emu, argv, ctx=None):
+            return True
+
+        reg("DeleteAce", DeleteAce, 2)
+
+        def GetAclInformation(self, emu, argv, ctx=None):
+            acl, info, size, cls = argv
+            if info:
+                self.mem_write(info, struct.pack("<HH", 0, 1) + b"\x00" * 4)
+            return True
+
+        reg("GetAclInformation", GetAclInformation, 4)
+
+        def SetAclInformation(self, emu, argv, ctx=None):
+            return True
+
+        reg("SetAclInformation", SetAclInformation, 4)
+
+        def MakeSelfRelativeSD(self, emu, argv, ctx=None):
+            return False
+
+        reg("MakeSelfRelativeSD", MakeSelfRelativeSD, 3)
+
+        def MakeAbsoluteSD(self, emu, argv, ctx=None):
+            return False
+
+        reg("MakeAbsoluteSD", MakeAbsoluteSD, 8)
+        reg("MakeAbsoluteSD2", MakeAbsoluteSD, 2)
+
+        def GetSecurityDescriptorControl(self, emu, argv, ctx=None):
+            sd, control, revision = argv
+            if control:
+                self.mem_write(control, b"\x00\x00")
+            if revision:
+                self.mem_write(revision, b"\x01\x00")
+            return True
+
+        reg("GetSecurityDescriptorControl", GetSecurityDescriptorControl, 3)
+
+        def GetSecurityDescriptorDacl(self, emu, argv, ctx=None):
+            sd, present, dacl, defaulted = argv
+            if present:
+                self.mem_write(present, b"\x00\x00\x00\x00")
+            if dacl:
+                self.mem_write(dacl, b"\x00" * ptr)
+            if defaulted:
+                self.mem_write(defaulted, b"\x00\x00\x00\x00")
+            return True
+
+        reg("GetSecurityDescriptorDacl", GetSecurityDescriptorDacl, 4)
+
+        def GetSecurityDescriptorOwner(self, emu, argv, ctx=None):
+            sd, owner, defaulted = argv
+            if owner:
+                self.mem_write(owner, b"\x00" * ptr)
+            if defaulted:
+                self.mem_write(defaulted, b"\x00\x00\x00\x00")
+            return True
+
+        reg("GetSecurityDescriptorOwner", GetSecurityDescriptorOwner, 3)
+
+        def GetSecurityDescriptorGroup(self, emu, argv, ctx=None):
+            return self.GetSecurityDescriptorOwner(emu, argv, ctx)
+
+        reg("GetSecurityDescriptorGroup", GetSecurityDescriptorGroup, 3)
+
+        def InitializeSecurityDescriptor(self, emu, argv, ctx=None):
+            sd, revision = argv
+            if not sd:
+                return False
+            self.mem_write(sd, b"\x01\x00\x00\x00" + b"\x00" * 16)
+            return True
+
+        reg("InitializeSecurityDescriptor", InitializeSecurityDescriptor, 2)
+
+        def IsValidSecurityDescriptor(self, emu, argv, ctx=None):
+            return True
+
+        reg("IsValidSecurityDescriptor", IsValidSecurityDescriptor, 1)
+
+        def SetSecurityDescriptorDacl(self, emu, argv, ctx=None):
+            return True
+
+        reg("SetSecurityDescriptorDacl", SetSecurityDescriptorDacl, 4)
+
+        def SetSecurityDescriptorOwner(self, emu, argv, ctx=None):
+            return True
+
+        reg("SetSecurityDescriptorOwner", SetSecurityDescriptorOwner, 3)
+
+        def SetSecurityDescriptorGroup(self, emu, argv, ctx=None):
+            return True
+
+        reg("SetSecurityDescriptorGroup", SetSecurityDescriptorGroup, 3)
+
+        def GetSecurityInfo(self, emu, argv, ctx=None):
+            handle, info, sec, owner, group, dacl, sacl, out = argv
+            return False
+
+        reg("GetSecurityInfo", GetSecurityInfo, 8)
+
+        def SetSecurityInfo(self, emu, argv, ctx=None):
+            return False
+
+        reg("SetSecurityInfo", SetSecurityInfo, 7)
+
+        def GetNamedSecurityInfo(self, emu, argv, ctx=None):
+            name, obj, info, owner, group, dacl, sacl, out = argv
+            return False
+
+        reg("GetNamedSecurityInfoW", GetNamedSecurityInfo, 8)
+        reg("GetNamedSecurityInfoA", GetNamedSecurityInfo, 8)
+
+        def MapGenericMask(self, emu, argv, ctx=None):
+            return
+
+        reg("MapGenericMask", MapGenericMask, 2)
+
+        def QueryServiceStatusEx(self, emu, argv, ctx=None):
+            """
+            BOOL QueryServiceStatusEx(
+                SC_HANDLE      hService,
+                SC_STATUS_TYPE InfoLevel,
+                LPBYTE         lpBuffer,
+                DWORD          cbBufSize,
+                LPDWORD        pcbBytesNeeded
+            );
+            """
+            handle, info_level, buf, size, needed = argv
+            if info_level != 0:  # SC_STATUS_PROCESS_INFO
+                if needed:
+                    self.mem_write(needed, b"\x00\x00\x00\x00")
+                return False
+            if not buf or size < 44:
+                if needed:
+                    self.mem_write(needed, b"\x2c\x00\x00\x00")
+                return False
+            self.mem_write(
+                buf,
+                struct.pack(
+                    "<IIIIIIIIIIQ",
+                    0,  # dwServiceType
+                    1,  # dwCurrentState (SERVICE_RUNNING)
+                    0,  # dwControlsAccepted
+                    0,  # dwWin32ExitCode
+                    0,  # dwServiceSpecificExitCode
+                    0,  # dwCheckPoint
+                    0,  # dwWaitHint
+                    0,  # dwProcessId
+                    0,  # dwServiceFlags
+                    0,  # dwServiceFlags2
+                    0,  # dwServiceFlags3
+                ),
+            )
+            if needed:
+                self.mem_write(needed, b"\x2c\x00\x00\x00")
+            return True
+
+        reg("QueryServiceStatusEx", QueryServiceStatusEx, 5)
+
+        def SetEntriesInAcl(self, emu, argv, ctx=None):
+            count, entries, old, new = argv
+            if new:
+                self.mem_write(new, b"\x00" * ptr)
+            return 87  # ERROR_INVALID_PARAMETER
+
+        reg("SetEntriesInAclW", SetEntriesInAcl, 4)
+        reg("SetEntriesInAclA", SetEntriesInAcl, 4)
 
     def get_handle(self):
         self.curr_handle += 4
@@ -175,8 +1220,18 @@ class AdvApi32(api.ApiHandler):
                 output = b""
                 typ = val.get_type()
                 data = val.get_data()
-                if typ == "REG_SZ":
-                    output = data.encode("utf-8")
+                if typ in ("REG_SZ", "REG_EXPAND_SZ", regdefs.REG_SZ, regdefs.REG_EXPAND_SZ):
+                    enc = "utf-16le" if cw == 2 else "utf-8"
+                    output = str(data).encode(enc)
+                    output += b"\x00\x00" if cw == 2 else b"\x00"
+                elif typ in ("REG_DWORD", regdefs.REG_DWORD):
+                    output = (int(data) & 0xFFFFFFFF).to_bytes(4, "little")
+                elif typ in ("REG_QWORD", regdefs.REG_QWORD):
+                    output = int(data).to_bytes(8, "little")
+                elif typ in ("REG_BINARY", regdefs.REG_BINARY):
+                    output = data if isinstance(data, bytes) else bytes(data)
+                elif data is not None:
+                    output = bytes(data) if isinstance(data, bytes) else str(data).encode("utf-8")
 
                 if not lpData and not lpcbData:
                     rv = windefs.ERROR_SUCCESS
@@ -190,17 +1245,9 @@ class AdvApi32(api.ApiHandler):
                         if lpData:
                             self.mem_write(lpData, output)
 
-            # For now, return an empty buffer
+            # Missing value: report ERROR_FILE_NOT_FOUND like Windows
             else:
-                output = b"\x00" * length
-                if lpData:
-                    try:
-                        self.mem_write(lpData, output)
-                    except Exception:
-                        return windefs.ERROR_INVALID_PARAMETER
-                if lpcbData:
-                    self.mem_write(lpcbData, len(output).to_bytes(4, "little"))
-                rv = windefs.ERROR_SUCCESS
+                rv = windefs.ERROR_FILE_NOT_FOUND
 
             kp = key.get_path()
             self.record_registry_access_event(
